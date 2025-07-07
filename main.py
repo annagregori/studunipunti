@@ -110,13 +110,39 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.message.reply_to_message:
         warned_user = update.message.reply_to_message.from_user
-        reason = " ".join(context.args) if context.args else "Nessun motivo fornito."
+
+        # --- Parsing quantità + motivo ---
+        amount = 1
+        reason = "Nessun motivo fornito."
+
+        if context.args:
+            try:
+                # Se il primo argomento è un numero, è la quantità di warn
+                if context.args[0].isdigit():
+                    amount = int(context.args[0])
+                    reason = " ".join(context.args[1:]) if len(context.args) > 1 else reason
+                else:
+                    reason = " ".join(context.args)
+            except Exception:
+                pass
+
+        # Sicurezza: min/max warn
+        amount = max(1, min(amount, 100))
+
         add_user(warned_user)
-        add_warning(warned_user.id, update.effective_chat.id, reason)
+
+        # Inserisce N warn separati
+        for _ in range(amount):
+            add_warning(warned_user.id, update.effective_chat.id, reason)
+
         warnings = get_warnings(warned_user.id)
         warn_count = len(warnings)
+
         await update.message.reply_text(
-            f"Warnato {get_user_mention(warned_user)}. Motivo: {escape_markdown(reason, version=2)} (Totale warning: {warn_count})",
+            f"Warnato {get_user_mention(warned_user)}.\n"
+            f"Motivo: {escape_markdown(reason, version=2)}\n"
+            f"Warn aggiunti: {amount}\n"
+            f"Totale warning: {warn_count}",
             parse_mode=ParseMode.MARKDOWN_V2
         )
     else:
