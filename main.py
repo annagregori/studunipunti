@@ -117,7 +117,6 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if context.args:
             try:
-                # Se il primo argomento è un numero, è la quantità di warn
                 if context.args[0].isdigit():
                     amount = int(context.args[0])
                     reason = " ".join(context.args[1:]) if len(context.args) > 1 else reason
@@ -126,25 +125,31 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except Exception:
                 pass
 
-        # Sicurezza: min/max warn
         amount = max(1, min(amount, 100))
 
         add_user(warned_user)
 
-        # Inserisce N warn separati
         for _ in range(amount):
             add_warning(warned_user.id, update.effective_chat.id, reason)
 
         warnings = get_warnings(warned_user.id)
         warn_count = len(warnings)
 
-        await update.message.reply_text(
-            f"Warnato {get_user_mention(warned_user)}.\n"
-            f"Motivo: {escape_markdown(reason, version=2)}\n"
-            f"Warn aggiunti: {amount}\n"
-            f"Totale warning: {warn_count}",
-            parse_mode=ParseMode.MARKDOWN_V2
+        # Escape di tutte le parti del messaggio
+        mention = get_user_mention(warned_user)
+        escaped_reason = escape_markdown(reason, version=2)
+        escaped_total = escape_markdown(str(warn_count), version=2)
+        escaped_amount = escape_markdown(str(amount), version=2)
+
+        message = (
+            f"Warnato {mention}.\n"
+            f"Motivo: {escaped_reason}\n"
+            f"Warn aggiunti: {escaped_amount}\n"
+            f"Totale warning: {escaped_total}"
         )
+
+        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
+
     else:
         await update.message.reply_text("Rispondi a un messaggio per warnare l'utente.")
 
