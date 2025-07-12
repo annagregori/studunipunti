@@ -135,7 +135,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         mention = get_user_mention(warned_user)
         escaped_reason = html.escape(reason)
         escaped_total = html.escape(str(warn_count))
-        escaped_amount = ehtml.escape(str(amount))
+        escaped_amount = html.escape(str(amount))
 
         message = (
             f"Warnato {mention}.\n"
