@@ -7,7 +7,7 @@ from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes
 )
-from telegram.helpers import escape_html
+import html
 
 # --- Configurazione ---
 BOT_TOKEN = "7408807151:AAEfagGM-RTYmn3Np7olGbhaMfVqbdxexkI"
@@ -73,7 +73,7 @@ def get_top_warned_users(limit=10):
     return list(warnings_col.aggregate(pipeline))
 
 def get_user_mention(user):
-    safe_name = escape_html(user.first_name or "Utente")
+    safe_name = html.escape(user.first_name or "Utente")
     return f"<a href='tg://user?id={user.id}'>{safe_name}</a>"
 
 async def is_admin(update: Update, user_id=None) -> bool:
@@ -92,7 +92,7 @@ def clear_warnings(user_id):
     warnings_col.delete_many({"user_id": user_id})
 
 def safe_mention(user):
-    name = escape_html(user.get("first_name", "Utente"))
+    name = html.escape(user.get("first_name", "Utente"))
     return f"<a href='tg://user?id={user['user_id']}'>{name}</a>"
 
 # --- Comandi Bot ---
@@ -133,9 +133,9 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warn_count = len(warnings)
 
         mention = get_user_mention(warned_user)
-        escaped_reason = escape_html(reason)
-        escaped_total = escape_html(str(warn_count))
-        escaped_amount = escape_html(str(amount))
+        escaped_reason = html.escape(reason)
+        escaped_total = html.escape(str(warn_count))
+        escaped_amount = ehtml.escape(str(amount))
 
         message = (
             f"Warnato {mention}.\n"
@@ -182,7 +182,7 @@ async def warnings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dt_object = datetime.datetime.fromtimestamp(entry["timestamp"])
             group_title = get_group_title(entry["chat_id"])
             group_info = f" in {group_title}" if group_title else ""
-            warning_text += f"- {dt_object.strftime('%Y-%m-%d %H:%M:%S')}{group_info}: {escape_html(entry['reason'])}\n"
+            warning_text += f"- {dt_object.strftime('%Y-%m-%d %H:%M:%S')}{group_info}: {html.escape(entry['reason'])}\n"
         await update.message.reply_text(warning_text, parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text(
@@ -203,7 +203,7 @@ async def top_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for idx, entry in enumerate(top_users, start=1):
         user_data = users_col.find_one({"user_id": entry["_id"]})
         if user_data:
-            name = escape_html(user_data.get("first_name", "Utente"))
+            name = html.escape(user_data.get("first_name", "Utente"))
             mention = f"<a href='tg://user?id={entry['_id']}'>{name}</a>"
         else:
             mention = f"ID {entry['_id']}"
@@ -220,7 +220,7 @@ async def no_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     message = "<b>Utenti senza alcun warning:</b>\n"
     for idx, user in enumerate(users, start=1):
-        name = escape_html(user.get("first_name", "Utente"))
+        name = html.escape(user.get("first_name", "Utente"))
         mention = f"<a href='tg://user?id={user['user_id']}'>{name}</a>"
         message += f"{idx}. {mention}\n"
 
