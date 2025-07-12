@@ -7,11 +7,11 @@ from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes
 )
-from telegram.helpers import escape_markdown
+from telegram.helpers import escape_html
 
 # --- Configurazione ---
 BOT_TOKEN = "7408807151:AAEfagGM-RTYmn3Np7olGbhaMfVqbdxexkI"
-MONGO_URI = "mongodb+srv://catiazelloth3:ShX3GkINTiCSG6hB@studentiunitelma.cyf8o1i.mongodb.net/?retryWrites=true&w=majority&appName=StudentiUnitelma"  # O MongoDB Atlas URI
+MONGO_URI = "mongodb+srv://catiazelloth3:ShX3GkINTiCSG6hB@studentiunitelma.cyf8o1i.mongodb.net/?retryWrites=true&w=majority&appName=StudentiUnitelma"
 DB_NAME = "shared_warn_bot"
 
 # --- Logging ---
@@ -72,10 +72,9 @@ def get_top_warned_users(limit=10):
     ]
     return list(warnings_col.aggregate(pipeline))
 
-
 def get_user_mention(user):
-    safe_name = escape_markdown(user.first_name or "Utente", version=2)
-    return f"[{safe_name}](tg://user?id={user.id})"
+    safe_name = escape_html(user.first_name or "Utente")
+    return f"<a href='tg://user?id={user.id}'>{safe_name}</a>"
 
 async def is_admin(update: Update, user_id=None) -> bool:
     user = user_id or update.effective_user.id
@@ -93,8 +92,8 @@ def clear_warnings(user_id):
     warnings_col.delete_many({"user_id": user_id})
 
 def safe_mention(user):
-    name = escape_markdown(user.get("first_name", "Utente"), version=2)
-    return f"[{name}](tg://user?id={user['user_id']})"
+    name = escape_html(user.get("first_name", "Utente"))
+    return f"<a href='tg://user?id={user['user_id']}'>{name}</a>"
 
 # --- Comandi Bot ---
 
@@ -111,7 +110,6 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.reply_to_message:
         warned_user = update.message.reply_to_message.from_user
 
-        # --- Parsing quantità + motivo ---
         amount = 1
         reason = "Nessun motivo fornito."
 
@@ -126,7 +124,6 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         amount = max(1, min(amount, 100))
-
         add_user(warned_user)
 
         for _ in range(amount):
@@ -135,11 +132,10 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warnings = get_warnings(warned_user.id)
         warn_count = len(warnings)
 
-        # Escape di tutte le parti del messaggio
         mention = get_user_mention(warned_user)
-        escaped_reason = escape_markdown(reason, version=2)
-        escaped_total = escape_markdown(str(warn_count), version=2)
-        escaped_amount = escape_markdown(str(amount), version=2)
+        escaped_reason = escape_html(reason)
+        escaped_total = escape_html(str(warn_count))
+        escaped_amount = escape_html(str(amount))
 
         message = (
             f"Warnato {mention}.\n"
@@ -148,7 +144,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Totale warning: {escaped_total}"
         )
 
-        await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
+        await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
     else:
         await update.message.reply_text("Rispondi a un messaggio per warnare l'utente.")
@@ -186,15 +182,12 @@ async def warnings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dt_object = datetime.datetime.fromtimestamp(entry["timestamp"])
             group_title = get_group_title(entry["chat_id"])
             group_info = f" in {group_title}" if group_title else ""
-            warning_text += f"- {dt_object.strftime('%Y-%m-%d %H:%M:%S')}{group_info}: {entry['reason']}\n"
-        await update.message.reply_text(
-            escape_markdown(warning_text, version=2),
-            parse_mode=ParseMode.MARKDOWN_V2
-        )
+            warning_text += f"- {dt_object.strftime('%Y-%m-%d %H:%M:%S')}{group_info}: {escape_html(entry['reason'])}\n"
+        await update.message.reply_text(warning_text, parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text(
             f"{user_to_mention} non ha warning.",
-            parse_mode=ParseMode.MARKDOWN_V2
+            parse_mode=ParseMode.HTML
         )
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
@@ -206,17 +199,17 @@ async def top_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nessun warning registrato.")
         return
 
-    message = "*Classifica utenti con più warning:*\n"
+    message = "<b>Classifica utenti con più warning:</b>\n"
     for idx, entry in enumerate(top_users, start=1):
         user_data = users_col.find_one({"user_id": entry["_id"]})
         if user_data:
-            name = escape_markdown(user_data.get("first_name", "Utente"), version=2)
-            mention = f"[{name}](tg://user?id={entry['_id']})"
+            name = escape_html(user_data.get("first_name", "Utente"))
+            mention = f"<a href='tg://user?id={entry['_id']}'>{name}</a>"
         else:
             mention = f"ID {entry['_id']}"
         message += f"{idx}. {mention} — {entry['count']} warning\n"
 
-    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
 async def no_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     users = get_users_with_no_warnings()
@@ -225,14 +218,13 @@ async def no_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Tutti gli utenti hanno ricevuto almeno un warning.")
         return
 
-    message = "*Utenti senza alcun warning:*\n"
+    message = "<b>Utenti senza alcun warning:</b>\n"
     for idx, user in enumerate(users, start=1):
-        name = user.get("first_name", "Utente")
-        mention = f"[{escape_markdown(name, version=2)}](tg://user?id={user['user_id']})"
-        message += f"{escape_markdown(str(idx) + '.', version=2)} {mention}\n"
+        name = escape_html(user.get("first_name", "Utente"))
+        mention = f"<a href='tg://user?id={user['user_id']}'>{name}</a>"
+        message += f"{idx}. {mention}\n"
 
-
-    await update.message.reply_text(message, parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(message, parse_mode=ParseMode.HTML)
 
 async def clear_warnings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update):
@@ -262,7 +254,10 @@ async def clear_warnings_command(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     clear_warnings(user_id_to_clear)
-    await update.message.reply_text(f"Tutti i warning per {user_mention} sono stati rimossi.", parse_mode=ParseMode.MARKDOWN_V2)
+    await update.message.reply_text(
+        f"Tutti i warning per {user_mention} sono stati rimossi.",
+        parse_mode=ParseMode.HTML
+    )
 
 # --- Avvio Bot ---
 def main():
@@ -271,7 +266,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("warn", warn))
     app.add_handler(CommandHandler("warnings", warnings_command))
-    app.add_handler(CommandHandler("topwarnings", top_warnings))  # << PRIMA di run_polling
+    app.add_handler(CommandHandler("topwarnings", top_warnings))
     app.add_handler(CommandHandler("nowarnings", no_warnings))
     app.add_handler(CommandHandler("clearwarnings", clear_warnings_command))
 
