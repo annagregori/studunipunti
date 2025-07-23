@@ -8,11 +8,16 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes
 )
 import html
+import os
+from pymongo import MongoClient
 
-# --- Configurazione ---
-BOT_TOKEN = "7408807151:AAEfagGM-RTYmn3Np7olGbhaMfVqbdxexkI"
-MONGO_URI = "mongodb+srv://catiazelloth3:ShX3GkINTiCSG6hB@studentiunitelma.cyf8o1i.mongodb.net/?retryWrites=true&w=majority&appName=StudentiUnitelma"
-DB_NAME = "shared_warn_bot"
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+MONGO_URI = os.getenv("MONGO_URI")
+
+if not BOT_TOKEN or not MONGO_URI:
+    raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
+
+mongo_client = MongoClient(MONGO_URI)
 
 # --- Logging ---
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
