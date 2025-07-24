@@ -69,6 +69,7 @@ def add_warning(user_id, chat_id, reason):
         "user_id": user_id,
         "chat_id": chat_id,
         "timestamp": int(time.time()),
+        "reason": reason
     })
 
 def get_warnings(user_id):
@@ -278,7 +279,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("warn", warn))
+    app.add_handler(CommandHandler("punto", warn))
     app.add_handler(CommandHandler("warnings", warnings_command))
     app.add_handler(CommandHandler("topwarnings", top_warnings))
     app.add_handler(CommandHandler("nowarnings", no_warnings))
