@@ -69,6 +69,7 @@ def add_warning(user_id, chat_id, reason):
         "user_id": user_id,
         "chat_id": chat_id,
         "timestamp": int(time.time()),
+        "reason": reason
     })
 
 def get_warnings(user_id):
@@ -125,6 +126,17 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warned_user = update.message.reply_to_message.from_user
 
         amount = 1
+        reason = "Nessun motivo fornito."
+
+        if context.args:
+            try:
+                if context.args[0].isdigit():
+                    amount = int(context.args[0])
+                    reason = " ".join(context.args[1:]) if len(context.args) > 1 else reason
+                else:
+                    reason = " ".join(context.args)
+            except Exception:
+                pass
 
         amount = max(1, min(amount, 100))
         add_user(warned_user)
@@ -141,7 +153,8 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         escaped_amount = html.escape(str(amount))
 
         message = (
-            f"Congratulazioni {mention}.\n"
+            f"Warnato {mention}.\n"
+            f"Motivo: {escaped_reason}\n"
             f"Warn aggiunti: {escaped_amount}\n"
             f"Totale warning: {escaped_total}"
         )
@@ -266,7 +279,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("warn", warn))
+    app.add_handler(CommandHandler("punto", warn))
     app.add_handler(CommandHandler("warnings", warnings_command))
     app.add_handler(CommandHandler("topwarnings", top_warnings))
     app.add_handler(CommandHandler("nowarnings", no_warnings))
