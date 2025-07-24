@@ -11,11 +11,18 @@ import html
 import os
 from pymongo import MongoClient
 
+
+# Carica dotenv SOLO se eseguito in locale
+if os.getenv("RAILWAY_ENVIRONMENT") is None:
+    from dotenv import load_dotenv
+    load_dotenv()
+
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
+
 
 mongo_client = MongoClient(MONGO_URI)
 
