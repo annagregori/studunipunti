@@ -19,6 +19,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
+mongo_client = MongoClient(MONGO_URI)
 DB_NAME = os.getenv("DB_NAME")
 db = mongo_client[DB_NAME]
 
