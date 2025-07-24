@@ -19,6 +19,8 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
+DB_NAME = os.getenv("DB_NAME")
+db = mongo_client[DB_NAME]
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
