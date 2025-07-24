@@ -69,7 +69,6 @@ def add_warning(user_id, chat_id, reason):
         "user_id": user_id,
         "chat_id": chat_id,
         "timestamp": int(time.time()),
-        "reason": reason
     })
 
 def get_warnings(user_id):
