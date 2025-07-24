@@ -266,7 +266,7 @@ def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("punto", warn))
+    app.add_handler(CommandHandler("warn", warn))
     app.add_handler(CommandHandler("warnings", warnings_command))
     app.add_handler(CommandHandler("topwarnings", top_warnings))
     app.add_handler(CommandHandler("nowarnings", no_warnings))
