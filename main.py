@@ -153,10 +153,10 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         escaped_amount = html.escape(str(amount))
 
         message = (
-            f"Warnato {mention}.\n"
-            f"Motivo: {escaped_reason}\n"
+            f"+ 1 punto {mention}.\n"
+    
             f"Punti aggiunti: {escaped_amount}\n"
-            f"Totale warning: {escaped_total}"
+            f"Totale punti: {escaped_total}"
         )
 
         await update.message.reply_text(message, parse_mode=ParseMode.HTML)
