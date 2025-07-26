@@ -155,7 +155,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         message = (
             f"Warnato {mention}.\n"
             f"Motivo: {escaped_reason}\n"
-            f"Warn aggiunti: {escaped_amount}\n"
+            f"Punti aggiunti: {escaped_amount}\n"
             f"Totale warning: {escaped_total}"
         )
 
@@ -201,7 +201,7 @@ async def warnings_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(warning_text, parse_mode=ParseMode.HTML)
     else:
         await update.message.reply_text(
-            f"{user_to_mention} non ha warning.",
+            f"{user_to_mention} non ha punti.",
             parse_mode=ParseMode.HTML
         )
 
@@ -214,7 +214,7 @@ async def top_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Nessun warning registrato.")
         return
 
-    message = "<b>Classifica utenti con più warning:</b>\n"
+    message = "<b>Classifica utenti con più punti:</b>\n"
     for idx, entry in enumerate(top_users, start=1):
         user_data = users_col.find_one({"user_id": entry["_id"]})
         if user_data:
