@@ -153,7 +153,7 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         escaped_amount = html.escape(str(amount))
 
         message = (
-            f"+ 1 punto per {escaped_name}\\.\n"
+            f"+ 1 punto per {escaped_name}.\n"
             f"Totale punti: {escaped_total}"
         )
 
