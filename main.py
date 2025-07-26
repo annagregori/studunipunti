@@ -147,13 +147,13 @@ async def warn(update: Update, context: ContextTypes.DEFAULT_TYPE):
         warnings = get_warnings(warned_user.id)
         warn_count = len(warnings)
 
-        escaped_name = escape_markdown(warned_user.full_name or "Utente", version=2)
+        mention = get_user_mention(warned_user)
         escaped_reason = html.escape(reason)
         escaped_total = html.escape(str(warn_count))
         escaped_amount = html.escape(str(amount))
 
         message = (
-            f"+ 1 punto per {escaped_name}.\n"
+            f"+ 1 punto per {mention}.\n"
             f"Totale punti: {escaped_total}"
         )
 
