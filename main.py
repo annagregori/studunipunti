@@ -233,7 +233,7 @@ async def no_warnings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Tutti gli utenti hanno ricevuto almeno un warning.")
         return
 
-    message = "<b>Utenti senza alcun warning:</b>\n"
+    message = "<b>Utenti senza alcun punto:</b>\n"
     for idx, user in enumerate(users, start=1):
         name = html.escape(user.get("first_name", "Utente"))
         mention = f"<a href='tg://user?id={user['user_id']}'>{name}</a>"
