@@ -232,55 +232,35 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
                 text=f"⚠️ {user.full_name} è uscito da {chat.title}"
             )
 
-# --- MAIN ---
-async def main():
+if __name__ == "__main__":
+    import sys
+
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    # --- Crea l'app ---
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Comandi
+    # --- Handler ---
     app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
     app_.add_handler(CommandHandler("punto", punto))
     app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
-
-    # Tracciamento messaggi
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
-
-    # Tracciamento uscite utenti
     app_.add_handler(ChatMemberHandler(member_status_update))
 
-    # Avvio task auto-ban dopo l'inizializzazione
+    # --- Avvia auto-ban ---
     async def start_auto_ban(app__):
         app__.create_task(auto_ban_zero_points(app__))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
     app_.post_init = start_auto_ban
 
-    logger.info("🤖 Bot avviato e in ascolto...")
-    await app_.run_polling(close_loop=False)
-
-# --- Avvio ---
-if __name__ == "__main__":
-    import asyncio
-    import sys
-
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-    # Crea l'app
-    from telegram.ext import ApplicationBuilder
-    app_ = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
-
-    # Inizializza handlers e comandi come nel main()
-    # Esempio minimo:
-    # app_.add_handler(CommandHandler("start", start))
-
-    # Avvia il bot in polling
+    # --- Avvia il bot ---
     asyncio.get_event_loop().create_task(app_.run_polling(close_loop=False))
     logger.info("🤖 Bot avviato e in ascolto su Railway!")
 
     # Mantieni il loop attivo
     asyncio.get_event_loop().run_forever()
-
-
