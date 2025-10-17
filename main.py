@@ -255,32 +255,38 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
 # --- MAIN ---
-if __name__ == "__main__":
-    import sys
-
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-    # --- Crea l'app ---
+async def main():
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # --- Handler ---
-app_.add_handler(CommandHandler("start", start))
+    # Comandi
+    app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
     app_.add_handler(CommandHandler("punto", punto))
     app_.add_error_handler(error_handler)
 
-    # --- Avvia auto-ban ---
-    async def start_auto_ban(app__):
-        app__.create_task(auto_ban_zero_points(app__))
-        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
+    # Tracciamento messaggi
+    app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
 
-    app_.post_init = start_auto_ban
+    # Tracciamento uscite utenti real-time
+    app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
 
-    # --- Avvia il bot ---
-    asyncio.get_event_loop().create_task(app_.run_polling(close_loop=False))
-    logger.info("🤖 Bot avviato e in ascolto su Railway!")
+    # Avvia task periodico per ban e pulizia
+    async def start_auto_tasks(app__):
+        app__.create_task(auto_tasks(app__))
+        logger.info("✅ Task auto_tasks avviato correttamente.")
 
-    # Mantieni il loop attivo
-    asyncio.get_event_loop().run_forever()
+    app_.post_init = start_auto_tasks
+
+    logger.info("🤖 Bot avviato e in ascolto...")
+    await app_.run_polling(close_loop=False)
+
+# --- Avvio ---
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    import asyncio
+    asyncio.run(main())
+
