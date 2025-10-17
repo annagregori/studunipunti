@@ -33,12 +33,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# --- Collezione unificata ---
 members_col = db["members"]
 
 # --- Utility DB ---
 def add_or_update_member(user, chat, points_delta=0):
-    """Registra o aggiorna un membro globale."""
     now = datetime.datetime.utcnow()
     member = members_col.find_one({"user_id": user.id})
 
@@ -95,13 +93,8 @@ def add_or_update_member(user, chat, points_delta=0):
             "created_at": now
         })
 
-def get_user_mention(user):
-    name = html.escape(user.first_name or "Utente")
-    return f"<a href='tg://user?id={user.id}'>{name}</a>"
-
 # --- Controllo admin ---
 async def is_admin(update: Update) -> bool:
-    """Verifica se l'utente è admin del gruppo."""
     chat = update.effective_chat
     user = update.effective_user
     if not chat or not user:
@@ -168,7 +161,7 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
-# --- AUTO BAN 0 PUNTI (dopo 6 mesi) ---
+# --- AUTO BAN ---
 async def auto_ban_zero_points(app):
     while True:
         logger.info("🔁 Controllo utenti con 0 punti registrati da oltre 6 mesi...")
@@ -197,7 +190,7 @@ async def auto_ban_zero_points(app):
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)  # 24 ore
+        await asyncio.sleep(86400)
 
 # --- MAIN ---
 async def main():
@@ -217,13 +210,13 @@ async def main():
     app.post_init = on_startup
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    await app.run_polling()
+    await app.run_polling(close_loop=False)
 
-# --- AVVIO COMPATIBILE CON OGNI AMBIENTE ---
+# --- Avvio corretto ---
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_event_loop()
-        loop.run_until_complete(main())
-    except RuntimeError:
-        # se loop già in esecuzione (es. Railway, Jupyter)
-        asyncio.get_running_loop().create_task(main())
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    asyncio.run(main())
+
