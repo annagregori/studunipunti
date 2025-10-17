@@ -19,7 +19,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-LOG_CHAT_ID = os.getenv("LOG_CHAT_ID")  # ID della chat dove inviare notifiche
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # Chat per i log
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -43,7 +43,7 @@ def add_or_update_member(user, chat, points_delta=0):
 
     group_info = {
         "chat_id": chat.id,
-        "title": chat.title if hasattr(chat, "title") else "",
+        "title": chat.title,
         "joined_at": now,
         "points": max(0, points_delta),
         "last_message_at": now
@@ -135,11 +135,10 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Totale globale: <b>{total}</b> punti."
     )
 
-    # Notifica nella chat di log
     if LOG_CHAT_ID:
         await context.bot.send_message(
-            chat_id=int(LOG_CHAT_ID),
-            text=f"🏅 {user.first_name} ha ricevuto {points} punti in {chat.title if chat.title else 'chat privata'}."
+            LOG_CHAT_ID,
+            f"✅ {user.first_name} ha ricevuto {points} punti in {chat.title}"
         )
 
 async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -188,19 +187,22 @@ async def auto_ban_zero_points(app):
                 try:
                     member = await app.bot.get_chat_member(chat_id, user_id)
                     if member.status in ("administrator", "creator"):
+                        logger.info(f"⏭️ Salto admin {user_id} in chat {chat_id}")
                         continue
+
                     await app.bot.ban_chat_member(chat_id, user_id)
+                    logger.info(f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)")
                     if LOG_CHAT_ID:
                         await app.bot.send_message(
-                            chat_id=int(LOG_CHAT_ID),
-                            text=f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)"
+                            LOG_CHAT_ID,
+                            f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)"
                         )
                 except Forbidden:
                     logger.warning(f"❌ Non ho permessi per bannare in {chat_id}")
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)  # Controllo una volta al giorno
+        await asyncio.sleep(86400)
 
 # --- Traccia tutti i messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,24 +212,24 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione uscita membri ---
-async def member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_member = update.chat_member
-    old_status = chat_member.old_chat_member.status
-    new_status = chat_member.new_chat_member.status
-    user = chat_member.from_user
+# --- Rimuove utente dal DB quando esce ---
+async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    member = update.chat_member
+    user = member.user
     chat = update.effective_chat
+    old_status = member.old_chat_member.status
+    new_status = member.new_chat_member.status
 
-    if old_status not in ("left", "kicked") and new_status in ("left", "kicked"):
-        # Rimuovi membro dal DB
+    # Se l'utente ha lasciato o è stato rimosso
+    if old_status in ("member", "administrator") and new_status in ("left", "kicked"):
         members_col.update_one(
             {"user_id": user.id},
             {"$pull": {"groups": {"chat_id": chat.id}}}
         )
         if LOG_CHAT_ID:
             await context.bot.send_message(
-                chat_id=int(LOG_CHAT_ID),
-                text=f"❌ {user.first_name} è uscito o stato rimosso da {chat.title}."
+                LOG_CHAT_ID,
+                f"⚠️ {user.first_name} è uscito o stato rimosso da {chat.title}"
             )
 
 # --- MAIN ---
@@ -242,18 +244,26 @@ def main():
     app.add_handler(CommandHandler("classifica", global_ranking))
     app.add_error_handler(error_handler)
 
-    # Tracciamento automatico messaggi
+    # Tracciamento messaggi
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
 
-    # Tracciamento uscita membri
-    app.add_handler(ChatMemberHandler(member_update, ChatMemberHandler.CHAT_MEMBER))
+    # Rimuove utenti quando escono
+    app.add_handler(ChatMemberHandler(chat_member_update, ChatMemberHandler.CHAT_MEMBER))
 
     # Task auto-ban
-    app.create_task(auto_ban_zero_points(app))
-    logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
+    async def on_startup(app):
+        app.create_task(auto_ban_zero_points(app))
+        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
+
+    app.post_init = on_startup
 
     logger.info("🤖 Bot avviato e in ascolto...")
     app.run_polling()
 
+# --- Avvio ---
 if __name__ == "__main__":
+    import sys
+    import asyncio
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
     main()
