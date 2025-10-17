@@ -113,12 +113,6 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.HTML
         )
 
-async def track_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Aggiorna il punteggio e la data ultimo messaggio di chi scrive."""
-    user = update.effective_user
-    chat = update.effective_chat
-    add_or_update_member(user, chat, points_delta=1)
-
 async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mostra la classifica globale di tutti i gruppi."""
     top_members = list(members_col.find().sort("total_points", -1).limit(10))
@@ -200,7 +194,6 @@ def main():
     # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_messages))
     app.add_handler(CommandHandler("globalranking", global_ranking))
     app.add_handler(CommandHandler("listmembers", list_members))
     app.add_handler(CommandHandler("punto", punto))
