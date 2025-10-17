@@ -256,11 +256,19 @@ async def main():
     logger.info("🤖 Bot avviato e in ascolto...")
     await app_.run_polling()
 
-# --- Avvio su Railway ---
 if __name__ == "__main__":
-    import sys, asyncio
+    import sys
     if sys.platform == "win32":
+        import asyncio
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    import asyncio
+    import logging
 
-    # Avvio compatibile con Railway
-    asyncio.get_event_loop().create_task(main())
+    import telegram.ext as tg
+
+    # main() deve essere async e chiamato così:
+    import main_module  # dove hai definito main()
+    import asyncio
+
+    asyncio.get_event_loop().run_until_complete(main_module.main())
+
