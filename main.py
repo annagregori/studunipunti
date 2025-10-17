@@ -16,6 +16,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
+members_col = db["group_members"]
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -50,6 +51,22 @@ def add_group(chat):
     groups_col.update_one(
         {"chat_id": chat.id},
         {"$set": {"chat_id": chat.id, "title": chat.title}},
+        upsert=True
+    )
+def add_group_member(chat_id, user):
+    """Registra o aggiorna un membro di un gruppo con la data di ingresso."""
+    members_col.update_one(
+        {"chat_id": chat_id, "user_id": user.id},
+        {
+            "$set": {
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name,
+            },
+            "$setOnInsert": {
+                "joined_at": datetime.datetime.utcnow()
+            }
+        },
         upsert=True
     )
 
@@ -189,6 +206,41 @@ async def clear_points_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Errore: {context.error}")
 
+async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update):
+        await update.message.reply_text("Solo gli amministratori possono usare questo comando.")
+        return
+
+    chat_id = update.effective_chat.id
+    members = list(members_col.find({"chat_id": chat_id}))
+
+    if not members:
+        await update.message.reply_text("Nessun membro registrato per questo gruppo.")
+        return
+
+    msg = f"<b>Membri registrati in {html.escape(update.effective_chat.title)}:</b>\n"
+    for m in members:
+        joined = m.get("joined_at", datetime.datetime.utcnow()).strftime("%Y-%m-%d")
+        name = html.escape(m.get("first_name", "Utente"))
+        mention = f"<a href='tg://user?id={m['user_id']}'>{name}</a>"
+        msg += f"- {mention} (entrato il {joined})\n"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    
+async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+    members_col.update_one(
+        {"chat_id": chat.id, "user_id": user.id},
+        {"$set": {
+            "last_message_at": datetime.datetime.utcnow(),
+            "username": user.username,
+            "first_name": user.first_name,
+            "last_name": user.last_name
+        }},
+        upsert=True
+    )
+
 # --- MAIN ---
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -200,6 +252,10 @@ def main():
     app.add_handler(CommandHandler("senza_punti", no_points))
     app.add_handler(CommandHandler("azzera_punti", clear_points_command))
     app.add_error_handler(error_handler)
+    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
+    app.add_handler(CommandHandler("membri", list_members))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_activity))
+
 
     app.run_polling()
 
