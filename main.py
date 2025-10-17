@@ -255,39 +255,35 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
             )
 
 # --- MAIN ---
-async def main():
+if __name__ == "__main__":
+    import sys
+
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+    # --- Crea l'app ---
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Comandi
+    # --- Handler ---
     app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
     app_.add_handler(CommandHandler("punto", punto))
+    app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
-
-    # Tracciamento messaggi
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
+    app_.add_handler(ChatMemberHandler(member_status_update))
 
-    # Tracciamento uscite utenti real-time
-    app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
+    # --- Avvia auto-ban ---
+    async def start_auto_ban(app__):
+        app__.create_task(auto_ban_zero_points(app__))
+        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
-    # Avvia task periodico per ban e pulizia
-    async def start_auto_tasks(app__):
-        app__.create_task(auto_tasks(app__))
-        logger.info("✅ Task auto_tasks avviato correttamente.")
+    app_.post_init = start_auto_ban
 
-    app_.post_init = start_auto_tasks
+    # --- Avvia il bot ---
+    asyncio.get_event_loop().create_task(app_.run_polling(close_loop=False))
+    logger.info("🤖 Bot avviato e in ascolto su Railway!")
 
-    logger.info("🤖 Bot avviato e in ascolto...")
-    await app_.run_polling(close_loop=False)
-
-# --- Avvio ---
-if __name__ == "__main__":
-    import sys
-    if sys.platform == "win32":
-        import asyncio
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    import asyncio
-    asyncio.run(main())
-
-            )
+    # Mantieni il loop attivo
+    asyncio.get_event_loop().run_forever()
