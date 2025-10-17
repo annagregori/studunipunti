@@ -3,6 +3,7 @@ import time
 import datetime
 import html
 import os
+import asyncio
 from pymongo import MongoClient
 from telegram import Update
 from telegram.constants import ParseMode
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 users_col = db["users"]
 warnings_col = db["warnings"]
 groups_col = db["groups"]
-members_col = db["members"]  # 🔥 nuova collezione unificata per tutti i gruppi
+members_col = db["members"]  # 🔥 collezione unificata per tutti i gruppi
 
 # --- Utility DB ---
 
@@ -139,10 +140,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Assegna punti a un membro del gruppo"""
-    if not await is_admin(update):
-        await update.message.reply_text("Solo gli amministratori possono usare questo comando.")
-        return
-
     if not update.message.reply_to_message:
         await update.message.reply_text("Rispondi a un messaggio per assegnare punti a un utente.")
         return
@@ -165,19 +162,54 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Totale globale: <b>{total}</b> punti."
     )
 
-async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    top_members = list(db.members.find().sort("total_points", -1).limit(10))
-    if not top_members:
-        await update.message.reply_text("Nessun membro registrato.")
-        return
+# --- BAN AUTOMATICO OGNI 6 MESI ---
 
-    msg = "<b>🏆 Classifica Globale</b>\n"
-    for i, m in enumerate(top_members, start=1):
-        name = html.escape(m.get("first_name", "Utente"))
-        mention = f"<a href='tg://user?id={m['user_id']}'>{name}</a>"
-        msg += f"{i}. {mention} — {m.get('total_points', 0)} punti\n"
+# --- BAN AUTOMATICO OGNI 6 MESI ---
 
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+async def auto_ban_zero_points(app):
+    """Controlla ogni giorno se deve bannare utenti con 0 punti (ogni 6 mesi)."""
+    while True:
+        now = datetime.datetime.utcnow()
+
+        meta = db["meta"].find_one({"_id": "autoban"})
+        last_run = meta.get("last_run") if meta else None
+
+        # Se mai eseguito o passati 180 giorni
+        if not last_run or (now - last_run).days >= 180:
+            logger.info("🔁 Avvio procedura automatica di ban utenti con 0 punti...")
+
+            zero_users = list(members_col.find({"total_points": 0}))
+
+            if not zero_users:
+                logger.info("Nessun utente con 0 punti da bannare.")
+            else:
+                for u in zero_users:
+                    user_id = u["user_id"]
+
+                    for g in u.get("groups", []):
+                        chat_id = g["chat_id"]
+                        try:
+                            # Recupera lista admin del gruppo
+                            admins = await app.bot.get_chat_administrators(chat_id)
+                            admin_ids = [a.user.id for a in admins]
+
+                            # Se l’utente è admin → salta
+                            if user_id in admin_ids:
+                                logger.info(f"⏭️ {user_id} è admin di {chat_id}, salto il ban.")
+                                continue
+
+                            # Altrimenti procedi al ban
+                            await app.bot.ban_chat_member(chat_id, user_id)
+                            logger.info(f"✅ Bannato {user_id} da {chat_id}")
+                        except Exception as e:
+                            logger.warning(f"⚠️ Impossibile bannare {user_id} da {chat_id}: {e}")
+
+            # Aggiorna data ultima esecuzione
+            db["meta"].update_one({"_id": "autoban"}, {"$set": {"last_run": now}}, upsert=True)
+
+        # Aspetta 24 ore prima di ricontrollare
+        await asyncio.sleep(86400)
+
 # --- Avvio bot ---
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -189,12 +221,12 @@ def main():
     app.add_handler(CommandHandler("punto", punto))
     app.add_handler(CommandHandler("classifica", global_ranking))
 
-
     app.add_error_handler(error_handler)
+
+    # Avvia controllo automatico in background
+    asyncio.create_task(auto_ban_zero_points(app))
 
     app.run_polling()
 
 if __name__ == "__main__":
     main()
-
-
