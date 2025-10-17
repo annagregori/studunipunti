@@ -51,7 +51,6 @@ def add_or_update_member(user, chat, points_delta=0):
     }
 
     if member:
-        # aggiorna dati base
         members_col.update_one(
             {"user_id": user.id},
             {
@@ -176,12 +175,12 @@ async def auto_ban_zero_points(app):
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
 
-        users = members_col.find({
+        users = list(members_col.find({
             "total_points": 0,
             "created_at": {"$lte": six_months_ago}
-        })
+        }))
 
-        async for user in users:
+        for user in users:
             user_id = user["user_id"]
             for g in user.get("groups", []):
                 chat_id = g["chat_id"]
@@ -198,13 +197,12 @@ async def auto_ban_zero_points(app):
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)  # Ripeti ogni 24 ore
+        await asyncio.sleep(86400)  # 24 ore
 
 # --- MAIN ---
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("globalranking", global_ranking))
     app.add_handler(CommandHandler("listmembers", list_members))
@@ -212,15 +210,20 @@ async def main():
     app.add_handler(CommandHandler("classifica", global_ranking))
     app.add_error_handler(error_handler)
 
-    # Avvia il task periodico all’avvio
     async def on_startup(app):
         asyncio.create_task(auto_ban_zero_points(app))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
     app.post_init = on_startup
 
-    # Avvia il bot
+    logger.info("🤖 Bot avviato e in ascolto...")
     await app.run_polling()
 
+# --- AVVIO COMPATIBILE CON OGNI AMBIENTE ---
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.run_until_complete(main())
+    except RuntimeError:
+        # se loop già in esecuzione (es. Railway, Jupyter)
+        asyncio.get_running_loop().create_task(main())
