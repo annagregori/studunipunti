@@ -207,12 +207,13 @@ async def main():
     app.post_init = post_init
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    await app.run_polling()
+    await app.run_polling(close_loop=False)
 
-# --- Avvio ---
+# --- Avvio compatibile con Railway / ambienti con loop attivo ---
 if __name__ == "__main__":
-    import sys
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-    asyncio.run(main())
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(main())
+        loop.run_forever()
+    except KeyboardInterrupt:
+        logger.info("🛑 Arresto manuale del bot.")
