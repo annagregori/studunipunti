@@ -42,7 +42,7 @@ def add_or_update_member(user, chat, points_delta=0):
 
     group_info = {
         "chat_id": chat.id,
-        "title": chat.title,
+        "title": getattr(chat, "title", "Privata"),
         "joined_at": now,
         "points": max(0, points_delta),
         "last_message_at": now
@@ -107,7 +107,7 @@ async def is_admin(update: Update) -> bool:
 
 # --- Comandi Telegram ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    add_or_update_member(update.message.from_user, update.effective_chat)
+    add_or_update_member(update.effective_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
 
 async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -190,7 +190,7 @@ async def auto_ban_zero_points(app):
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)  # Controllo una volta al giorno
+        await asyncio.sleep(86400)
 
 # --- Traccia tutti i messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,8 +212,8 @@ async def main():
     app.add_handler(CommandHandler("classifica", global_ranking))
     app.add_error_handler(error_handler)
 
-    # Tracciamento automatico messaggi
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
+    # Tracciamento automatico messaggi di testo (non comandi)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message))
 
     # Task auto-ban
     async def on_startup(app):
@@ -225,9 +225,12 @@ async def main():
     logger.info("🤖 Bot avviato e in ascolto...")
     await app.run_polling(close_loop=False)
 
-# --- Avvio corretto ---
+# --- Avvio corretto senza asyncio.run ---
 if __name__ == "__main__":
     import sys
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    loop.run_forever()
