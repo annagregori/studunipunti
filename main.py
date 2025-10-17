@@ -169,18 +169,18 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Update {update} caused error {context.error}")
 
-# --- AUTO BAN ---
-async def auto_ban_zero_points(app):
+# --- AUTO BAN E CLEANUP ---
+async def auto_tasks(app):
     while True:
-        logger.info("🔁 Controllo utenti con 0 punti registrati da oltre 6 mesi...")
+        logger.info("🔁 Controllo utenti e pulizia DB...")
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
 
+        # --- Auto-ban utenti 0 punti ---
         users = list(members_col.find({
             "total_points": 0,
             "created_at": {"$lte": six_months_ago}
         }))
-
         for user in users:
             user_id = user["user_id"]
             for g in user.get("groups", []):
@@ -188,12 +188,8 @@ async def auto_ban_zero_points(app):
                 try:
                     member = await app.bot.get_chat_member(chat_id, user_id)
                     if member.status in ("administrator", "creator"):
-                        logger.info(f"⏭️ Salto admin {user_id} in chat {chat_id}")
                         continue
-
                     await app.bot.ban_chat_member(chat_id, user_id)
-                    logger.info(f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)")
-
                     if LOG_CHAT_ID:
                         await app.bot.send_message(
                             chat_id=LOG_CHAT_ID,
@@ -204,9 +200,35 @@ async def auto_ban_zero_points(app):
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)  # Controllo una volta al giorno
+        # --- Pulizia membri usciti ---
+        # Controlla tutti i gruppi registrati nel DB
+        groups = members_col.distinct("groups.chat_id")
+        for chat_id in groups:
+            try:
+                # Lista attuale membri del gruppo
+                chat_members = await app.bot.get_chat_administrators(chat_id)
+                chat_member_ids = [m.user.id for m in chat_members]
 
-# --- Traccia tutti i messaggi ---
+                # Controlla tutti i membri registrati in quel gruppo
+                for m in members_col.find({"groups.chat_id": chat_id}):
+                    if m["user_id"] not in chat_member_ids:
+                        members_col.update_one(
+                            {"user_id": m["user_id"]},
+                            {"$pull": {"groups": {"chat_id": chat_id}}}
+                        )
+                        if LOG_CHAT_ID:
+                            await app.bot.send_message(
+                                chat_id=LOG_CHAT_ID,
+                                text=f"⚠️ {m.get('first_name', 'Utente')} non è più presente in {chat_id}, rimosso dal DB"
+                            )
+            except Forbidden:
+                logger.warning(f"❌ Non ho permessi per leggere membri in {chat_id}")
+            except Exception as e:
+                logger.error(f"Errore durante cleanup in {chat_id}: {e}")
+
+        await asyncio.sleep(3600)  # Controllo ogni ora
+
+# --- Traccia messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -214,14 +236,14 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione uscite usando ChatMemberHandler ---
+# --- Gestione uscite real-time ---
 async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     old_status = update.chat_member.old_chat_member.status
     new_status = update.chat_member.new_chat_member.status
     user = update.chat_member.new_chat_member.user
     chat = update.effective_chat
 
-    if old_status != "left" and new_status == "left":
+    if new_status == "left" or new_status == "kicked":
         members_col.update_one(
             {"user_id": user.id},
             {"$pull": {"groups": {"chat_id": chat.id}}}
@@ -232,35 +254,40 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
                 text=f"⚠️ {user.full_name} è uscito da {chat.title}"
             )
 
-if __name__ == "__main__":
-    import sys
-
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-    # --- Crea l'app ---
+# --- MAIN ---
+async def main():
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # --- Handler ---
+    # Comandi
     app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
     app_.add_handler(CommandHandler("punto", punto))
-    app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
+
+    # Tracciamento messaggi
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
-    app_.add_handler(ChatMemberHandler(member_status_update))
 
-    # --- Avvia auto-ban ---
-    async def start_auto_ban(app__):
-        app__.create_task(auto_ban_zero_points(app__))
-        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
+    # Tracciamento uscite utenti real-time
+    app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
 
-    app_.post_init = start_auto_ban
+    # Avvia task periodico per ban e pulizia
+    async def start_auto_tasks(app__):
+        app__.create_task(auto_tasks(app__))
+        logger.info("✅ Task auto_tasks avviato correttamente.")
 
-    # --- Avvia il bot ---
-    asyncio.get_event_loop().create_task(app_.run_polling(close_loop=False))
-    logger.info("🤖 Bot avviato e in ascolto su Railway!")
+    app_.post_init = start_auto_tasks
 
-    # Mantieni il loop attivo
-    asyncio.get_event_loop().run_forever()
+    logger.info("🤖 Bot avviato e in ascolto...")
+    await app_.run_polling(close_loop=False)
+
+# --- Avvio ---
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    import asyncio
+    asyncio.run(main())
+
+            )
