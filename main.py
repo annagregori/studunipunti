@@ -196,7 +196,6 @@ async def auto_ban_zero_points(app):
         await asyncio.sleep(86400)  # ogni 24 ore
 
 # --- Avvio bot ---
-
 async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -208,14 +207,27 @@ async def main():
     app.add_handler(CommandHandler("classifica", global_ranking))
     app.add_error_handler(error_handler)
 
-    # ✅ avvia il task periodico una volta che il bot è partito
+    # ✅ avvia il task periodico dopo l’avvio del bot
     async def on_startup(app):
         asyncio.create_task(auto_ban_zero_points(app))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
     app.post_init = on_startup
 
-    await app.run_polling()
+    # 🚀 IMPORTANTE: usa direttamente run_polling(), SENZA asyncio.run()
+    await app.initialize()
+    await on_startup(app)
+    await app.start()
+    logger.info("🤖 Bot avviato e in ascolto...")
+    await app.updater.start_polling()
+    await app.updater.idle()
+
+if __name__ == "__main__":
+    import asyncio
+    try:
+        asyncio.get_event_loop().run_until_complete(main())
+    except KeyboardInterrupt:
+        print("Bot arrestato manualmente.")
 
 if __name__ == "__main__":
     asyncio.run(main())
