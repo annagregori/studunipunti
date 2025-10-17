@@ -261,5 +261,13 @@ async def main():
 if __name__ == "__main__":
     import sys
     if sys.platform == "win32":
+        import asyncio
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+
+    import nest_asyncio
+    nest_asyncio.apply()  # permette di usare run_polling in loop già esistente
+
+    import asyncio
+    import main
+    asyncio.get_event_loop().run_until_complete(main.main())
+
