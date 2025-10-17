@@ -24,18 +24,21 @@ if not BOT_TOKEN or not MONGO_URI:
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
-members_col = db["members"]
 
 # --- Logging ---
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# --- Gestione utenti ---
+# --- Collezioni ---
+members_col = db["members"]
+
+# --- Utility DB ---
+
 def add_or_update_member(user, chat, points_delta=0):
-    """Registra o aggiorna un membro e aggiorna la data dell'ultimo messaggio."""
+    """Registra o aggiorna un membro a livello globale."""
     member = members_col.find_one({"user_id": user.id})
     now = datetime.datetime.utcnow()
 
@@ -48,6 +51,7 @@ def add_or_update_member(user, chat, points_delta=0):
     }
 
     if member:
+        # Aggiorna info base utente
         members_col.update_one(
             {"user_id": user.id},
             {"$set": {
@@ -57,6 +61,7 @@ def add_or_update_member(user, chat, points_delta=0):
             }}
         )
 
+        # Controlla se già nel gruppo
         existing_group = next((g for g in member.get("groups", []) if g["chat_id"] == chat.id), None)
         if existing_group:
             members_col.update_one(
@@ -72,6 +77,7 @@ def add_or_update_member(user, chat, points_delta=0):
                 {"$push": {"groups": group_info}, "$inc": {"total_points": points_delta}}
             )
     else:
+        # Nuovo utente globale
         members_col.insert_one({
             "user_id": user.id,
             "username": user.username,
@@ -79,16 +85,52 @@ def add_or_update_member(user, chat, points_delta=0):
             "last_name": user.last_name,
             "groups": [group_info],
             "total_points": points_delta,
-            "created_at": now
+            "created_at": now  # 🔥 Data registrazione per controllo 6 mesi
         })
 
+
+def get_user_mention(user):
+    name = html.escape(user.first_name or "Utente")
+    return f"<a href='tg://user?id={user.id}'>{name}</a>"
+
 # --- Eventi Telegram ---
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_or_update_member(update.message.from_user, update.effective_chat)
-    await update.message.reply_text("🤖 Bot attivo! Sto monitorando la tua attività.")
+    await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
+
+async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Mostra la classifica globale di tutti i gruppi."""
+    top_members = list(members_col.find().sort("total_points", -1).limit(10))
+    if not top_members:
+        await update.message.reply_text("Nessun membro registrato.")
+        return
+
+    msg = "<b>🏆 Classifica Globale Utenti</b>\n"
+    for i, m in enumerate(top_members, start=1):
+        name = html.escape(m.get("first_name", "Utente"))
+        mention = f"<a href='tg://user?id={m['user_id']}'>{name}</a>"
+        msg += f"{i}. {mention} — {m.get('total_points', 0)} punti\n"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Lista di tutti gli utenti conosciuti globalmente."""
+    members = list(members_col.find().sort("first_name", 1))
+    if not members:
+        await update.message.reply_text("Nessun membro registrato.")
+        return
+
+    msg = "<b>👥 Membri registrati globalmente:</b>\n"
+    for i, m in enumerate(members, start=1):
+        name = html.escape(m.get("first_name", "Utente"))
+        mention = f"<a href='tg://user?id={m['user_id']}'>{name}</a>"
+        msg += f"{i}. {mention} — {m.get('total_points', 0)} punti totali\n"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Assegna punti a un membro del gruppo"""
+    """Assegna punti a un membro del gruppo."""
     if not update.message.reply_to_message:
         await update.message.reply_text("Rispondi a un messaggio per assegnare punti a un utente.")
         return
@@ -98,9 +140,10 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     points = 1
     if context.args and context.args[0].isdigit():
         points = int(context.args[0])
+
     add_or_update_member(user, chat, points_delta=points)
 
-    member = db.members.find_one({"user_id": user.id})
+    member = members_col.find_one({"user_id": user.id})
     total = member.get("total_points", 0)
 
     await update.message.reply_html(
@@ -108,61 +151,71 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Totale globale: <b>{total}</b> punti."
     )
 
-# --- BAN AUTOMATICO OGNI 6 MESI DI INATTIVITÀ ---
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
+    logger.error(f'Update "{update}" caused error "{context.error}"')
+
+# --- BAN AUTOMATICO OGNI 6 MESI ---
+
 async def auto_ban_zero_points(app):
-    """Ogni giorno banna chi ha 0 punti e non ha interagito da 6 mesi."""
+    """
+    Ogni giorno controlla chi ha total_points == 0 e
+    si è registrato da più di 6 mesi → ban automatico (esclusi admin).
+    """
     while True:
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
 
-        logger.info("🔁 Controllo utenti inattivi da oltre 6 mesi...")
+        logger.info("🔁 Controllo utenti con 0 punti registrati da oltre 6 mesi...")
 
-        # Seleziona solo utenti inattivi da oltre 6 mesi
-        zero_users = list(members_col.find({
+        candidates = members_col.find({
             "total_points": 0,
-            "groups.last_message_at": {"$lt": six_months_ago}
-        }))
+            "created_at": {"$lt": six_months_ago}
+        })
 
-        if not zero_users:
-            logger.info("✅ Nessun utente inattivo da bannare.")
-        else:
-            for u in zero_users:
-                user_id = u["user_id"]
+        for u in candidates:
+            user_id = u["user_id"]
+            for g in u.get("groups", []):
+                chat_id = g["chat_id"]
+                try:
+                    # Evita di bannare admin
+                    admins = await app.bot.get_chat_administrators(chat_id)
+                    admin_ids = [a.user.id for a in admins]
+                    if user_id in admin_ids:
+                        logger.info(f"⏭️ {user_id} è admin di {chat_id}, salto il ban.")
+                        continue
 
-                for g in u.get("groups", []):
-                    chat_id = g["chat_id"]
-                    last_msg = g.get("last_message_at")
-                    if not last_msg or last_msg > six_months_ago:
-                        continue  # è attivo, salta
+                    await app.bot.ban_chat_member(chat_id, user_id)
+                    logger.info(f"🚫 Bannato {user_id} da {chat_id} (0 punti da oltre 6 mesi).")
 
-                    try:
-                        # Controlla se è admin prima di bannare
-                        admins = await app.bot.get_chat_administrators(chat_id)
-                        admin_ids = [a.user.id for a in admins]
-                        if user_id in admin_ids:
-                            logger.info(f"⏭️ {user_id} è admin di {chat_id}, salto il ban.")
-                            continue
+                except Exception as e:
+                    logger.warning(f"⚠️ Errore nel bannare {user_id} da {chat_id}: {e}")
 
-                        await app.bot.ban_chat_member(chat_id, user_id)
-                        logger.info(f"🚫 Bannato utente {user_id} da chat {chat_id}")
-                    except Exception as e:
-                        logger.warning(f"⚠️ Errore nel ban di {user_id} da {chat_id}: {e}")
+        # Aggiorna data ultima esecuzione
+        db["meta"].update_one({"_id": "autoban"}, {"$set": {"last_run": now}}, upsert=True)
 
-        await asyncio.sleep(86400)  # Ricontrolla ogni 24h
+        await asyncio.sleep(86400)  # ogni 24 ore
 
-# --- Avvio Bot ---
-def main():
+# --- Avvio bot ---
+
+async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("globalranking", global_ranking))
+    app.add_handler(CommandHandler("listmembers", list_members))
     app.add_handler(CommandHandler("punto", punto))
+    app.add_handler(CommandHandler("classifica", global_ranking))
+    app.add_error_handler(error_handler)
 
+    # ✅ avvia il task periodico una volta che il bot è partito
     async def on_startup(app):
-        app.create_task(auto_ban_zero_points(app))
-        logger.info("✅ Task auto_ban_zero_points avviato.")
+        asyncio.create_task(auto_ban_zero_points(app))
+        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
     app.post_init = on_startup
-    app.run_polling(close_loop=False)
+
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
