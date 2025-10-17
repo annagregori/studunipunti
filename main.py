@@ -192,5 +192,42 @@ async def auto_ban_zero_points(app):
 
         await asyncio.sleep(86400)  # Controllo una volta al giorno
 
-# --- Traccia tut
+# --- Traccia tutti i messaggi ---
+async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat = update.effective_chat
+    if not user or not chat:
+        return
+    add_or_update_member(user, chat)
 
+# --- MAIN ---
+async def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Comandi
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("globalranking", global_ranking))
+    app.add_handler(CommandHandler("listmembers", list_members))
+    app.add_handler(CommandHandler("punto", punto))
+    app.add_handler(CommandHandler("classifica", global_ranking))
+    app.add_error_handler(error_handler)
+
+    # Tracciamento automatico messaggi
+    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
+
+    # Task auto-ban
+    async def on_startup(app):
+        asyncio.create_task(auto_ban_zero_points(app))
+        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
+
+    app.post_init = on_startup
+
+    logger.info("🤖 Bot avviato e in ascolto...")
+    await app.run_polling(close_loop=False)
+
+# --- Avvio corretto ---
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
