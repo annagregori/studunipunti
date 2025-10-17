@@ -152,6 +152,47 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f'Update "{update}" caused error "{context.error}"')
 
+async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Assegna punti a un membro del gruppo"""
+    if not await is_admin(update):
+        await update.message.reply_text("Solo gli amministratori possono usare questo comando.")
+        return
+
+    if not update.message.reply_to_message:
+        await update.message.reply_text("Rispondi a un messaggio per assegnare punti a un utente.")
+        return
+
+    user = update.message.reply_to_message.from_user
+    chat = update.effective_chat
+
+    # Numero di punti (default 1)
+    points = 1
+    if context.args and context.args[0].isdigit():
+        points = int(context.args[0])
+
+    add_or_update_member(user, chat, points_delta=points)
+
+    member = db.members.find_one({"user_id": user.id})
+    total = member.get("total_points", 0)
+
+    await update.message.reply_html(
+        f"✅ <b>{html.escape(user.first_name)}</b> ha ricevuto <b>{points}</b> punti!\n"
+        f"Totale globale: <b>{total}</b> punti."
+    )
+
+async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    top_members = list(db.members.find().sort("total_points", -1).limit(10))
+    if not top_members:
+        await update.message.reply_text("Nessun membro registrato.")
+        return
+
+    msg = "<b>🏆 Classifica Globale</b>\n"
+    for i, m in enumerate(top_members, start=1):
+        name = html.escape(m.get("first_name", "Utente"))
+        mention = f"<a href='tg://user?id={m['user_id']}'>{name}</a>"
+        msg += f"{i}. {mention} — {m.get('total_points', 0)} punti\n"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 # --- Avvio bot ---
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -162,6 +203,9 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_messages))
     app.add_handler(CommandHandler("globalranking", global_ranking))
     app.add_handler(CommandHandler("listmembers", list_members))
+    app.add_handler(CommandHandler("punto", punto))
+    app.add_handler(CommandHandler("classifica", global_ranking))
+
 
     app.add_error_handler(error_handler)
 
