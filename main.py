@@ -207,13 +207,15 @@ async def main():
     app.post_init = post_init
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    await app.run_polling(close_loop=False)
+    # 👇 NON chiudiamo mai il loop
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await asyncio.Event().wait()  # Mantiene il processo vivo per sempre
 
-# --- Avvio compatibile con Railway / ambienti con loop attivo ---
 if __name__ == "__main__":
     try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(main())
-        loop.run_forever()
+        asyncio.get_event_loop().run_until_complete(main())
     except KeyboardInterrupt:
         logger.info("🛑 Arresto manuale del bot.")
+
