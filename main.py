@@ -7,13 +7,10 @@ from pymongo import MongoClient
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    MessageHandler, ChatMemberHandler, filters
 )
 from telegram.error import Forbidden
-import nest_asyncio
-
-# --- Applica patch per Railway / Jupyter ---
-nest_asyncio.apply()
 
 # --- Carica dotenv solo in locale ---
 if os.getenv("RAILWAY_ENVIRONMENT") is None:
@@ -217,23 +214,23 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione utenti che escono ---
-async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user = update.message.left_chat_member
+# --- Gestione uscite usando ChatMemberHandler ---
+async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    old_status = update.chat_member.old_chat_member.status
+    new_status = update.chat_member.new_chat_member.status
+    user = update.chat_member.new_chat_member.user
     chat = update.effective_chat
-    if not user or not chat:
-        return
 
-    members_col.update_one(
-        {"user_id": user.id},
-        {"$pull": {"groups": {"chat_id": chat.id}}}
-    )
-
-    if LOG_CHAT_ID:
-        await context.bot.send_message(
-            chat_id=LOG_CHAT_ID,
-            text=f"⚠️ {user.full_name} è uscito da {chat.title}"
+    if old_status != "left" and new_status == "left":
+        members_col.update_one(
+            {"user_id": user.id},
+            {"$pull": {"groups": {"chat_id": chat.id}}}
         )
+        if LOG_CHAT_ID:
+            await context.bot.send_message(
+                chat_id=LOG_CHAT_ID,
+                text=f"⚠️ {user.full_name} è uscito da {chat.title}"
+            )
 
 # --- MAIN ---
 async def main():
@@ -247,9 +244,11 @@ async def main():
     app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
 
-    # Tracciamento automatico messaggi
+    # Tracciamento messaggi
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
-    app_.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
+
+    # Tracciamento uscite utenti
+    app_.add_handler(ChatMemberHandler(member_status_update))
 
     # Avvio task auto-ban dopo l'inizializzazione
     async def start_auto_ban(app__):
@@ -261,11 +260,10 @@ async def main():
     logger.info("🤖 Bot avviato e in ascolto...")
     await app_.run_polling(close_loop=False)
 
-# --- Avvio bot senza asyncio.run() ---
+# --- Avvio ---
 if __name__ == "__main__":
-    try:
-        loop = asyncio.get_event_loop()
-        loop.create_task(main())
-        loop.run_forever()
-    except KeyboardInterrupt:
-        logger.info("Bot terminato manualmente")
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
+
