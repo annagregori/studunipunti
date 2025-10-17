@@ -51,36 +51,21 @@ def add_or_update_member(user, chat, points_delta=0):
     if member:
         members_col.update_one(
             {"user_id": user.id},
-            {
-                "$set": {
-                    "username": user.username,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name
-                }
-            }
+            {"$set": {"username": user.username,
+                      "first_name": user.first_name,
+                      "last_name": user.last_name}}
         )
-        existing_group = next(
-            (g for g in member.get("groups", []) if g["chat_id"] == chat.id),
-            None
-        )
+        existing_group = next((g for g in member.get("groups", []) if g["chat_id"] == chat.id), None)
         if existing_group:
             members_col.update_one(
                 {"user_id": user.id, "groups.chat_id": chat.id},
-                {
-                    "$inc": {
-                        "groups.$.points": points_delta,
-                        "total_points": points_delta
-                    },
-                    "$set": {"groups.$.last_message_at": now}
-                }
+                {"$inc": {"groups.$.points": points_delta, "total_points": points_delta},
+                 "$set": {"groups.$.last_message_at": now}}
             )
         else:
             members_col.update_one(
                 {"user_id": user.id},
-                {
-                    "$push": {"groups": group_info},
-                    "$inc": {"total_points": points_delta}
-                }
+                {"$push": {"groups": group_info}, "$inc": {"total_points": points_delta}}
             )
     else:
         members_col.insert_one({
@@ -105,7 +90,7 @@ async def is_admin(update: Update) -> bool:
     except Exception:
         return False
 
-# --- Comandi Telegram ---
+# --- Comandi ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_or_update_member(update.effective_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
@@ -114,7 +99,6 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update):
         await update.message.reply_text("Solo gli amministratori possono assegnare punti.")
         return
-
     if not update.message.reply_to_message:
         await update.message.reply_text("Rispondi a un messaggio per assegnare punti.")
         return
@@ -139,7 +123,6 @@ async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not top:
         await update.message.reply_text("Nessun membro registrato.")
         return
-
     msg = "<b>🏆 Classifica Globale</b>\n"
     for i, m in enumerate(top, start=1):
         name = html.escape(m.get("first_name", "Utente"))
@@ -151,7 +134,6 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not members:
         await update.message.reply_text("Nessun membro registrato.")
         return
-
     msg = "<b>👥 Membri registrati globalmente:</b>\n"
     for i, m in enumerate(members, start=1):
         name = html.escape(m.get("first_name", "Utente"))
@@ -164,15 +146,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 # --- AUTO BAN ---
 async def auto_ban_zero_points(app):
     while True:
-        logger.info("🔁 Controllo utenti con 0 punti registrati da oltre 6 mesi...")
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
-
-        users = list(members_col.find({
-            "total_points": 0,
-            "created_at": {"$lte": six_months_ago}
-        }))
-
+        users = list(members_col.find({"total_points": 0, "created_at": {"$lte": six_months_ago}}))
         for user in users:
             user_id = user["user_id"]
             for g in user.get("groups", []):
@@ -180,19 +156,15 @@ async def auto_ban_zero_points(app):
                 try:
                     member = await app.bot.get_chat_member(chat_id, user_id)
                     if member.status in ("administrator", "creator"):
-                        logger.info(f"⏭️ Salto admin {user_id} in chat {chat_id}")
                         continue
-
                     await app.bot.ban_chat_member(chat_id, user_id)
-                    logger.info(f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)")
                 except Forbidden:
                     logger.warning(f"❌ Non ho permessi per bannare in {chat_id}")
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
-
         await asyncio.sleep(86400)
 
-# --- Traccia tutti i messaggi ---
+# --- Tracciamento messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -225,12 +197,13 @@ async def main():
     logger.info("🤖 Bot avviato e in ascolto...")
     await app.run_polling(close_loop=False)
 
-# --- Avvio corretto senza asyncio.run ---
+# --- Avvio senza asyncio.run ---
 if __name__ == "__main__":
     import sys
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+    application = ApplicationBuilder().token(BOT_TOKEN).build()
+    # Avvia direttamente senza asyncio.run
+    asyncio.get_event_loop().create_task(main())
+    asyncio.get_event_loop().run_forever()
