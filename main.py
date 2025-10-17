@@ -6,9 +6,7 @@ import os
 from pymongo import MongoClient
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes
-)
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 from telegram.error import Forbidden
 
 # --- Carica dotenv solo in locale ---
@@ -25,6 +23,7 @@ if not BOT_TOKEN or not MONGO_URI:
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
+members_col = db["members"]
 
 # --- Logging ---
 logging.basicConfig(
@@ -32,8 +31,6 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
-
-members_col = db["members"]
 
 # --- Utility DB ---
 def add_or_update_member(user, chat, points_delta=0):
@@ -203,20 +200,19 @@ async def main():
     app.add_handler(CommandHandler("classifica", global_ranking))
     app.add_error_handler(error_handler)
 
-    async def on_startup(app):
+    async def post_init(app):
         asyncio.create_task(auto_ban_zero_points(app))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
-    app.post_init = on_startup
+    app.post_init = post_init
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    await app.run_polling(close_loop=False)
+    await app.run_polling()
 
-# --- Avvio corretto ---
+# --- Avvio ---
 if __name__ == "__main__":
     import sys
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     asyncio.run(main())
-
