@@ -211,7 +211,8 @@ async def auto_ban_zero_points(app):
         await asyncio.sleep(86400)
 
 # --- Avvio bot ---
-def main():
+# --- Avvio bot ---
+async def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Handlers
@@ -220,13 +221,18 @@ def main():
     app.add_handler(CommandHandler("listmembers", list_members))
     app.add_handler(CommandHandler("punto", punto))
     app.add_handler(CommandHandler("classifica", global_ranking))
-
     app.add_error_handler(error_handler)
 
-    # Avvia controllo automatico in background
-    asyncio.create_task(auto_ban_zero_points(app))
+    # ✅ Avvia il task automatico DOPO che il bot parte
+    async def on_startup(app):
+        app.create_task(auto_ban_zero_points(app))
+        logger.info("✅ Task auto_ban_zero_points avviato.")
 
-    app.run_polling()
+    app.post_init = on_startup
+
+    # Avvia polling
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
