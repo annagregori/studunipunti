@@ -244,6 +244,14 @@ async def track_activity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }},
         upsert=True
     )
+async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    for member in update.message.new_chat_members:
+        add_user(member)
+        add_group(update.effective_chat)
+        add_group_member(update.effective_chat.id, member)
+
+        mention = get_user_mention(member)
+        await update.message.reply_text(f"👋 Benvenuto {mention}!", parse_mode=ParseMode.HTML)
 
 # --- MAIN ---
 def main():
