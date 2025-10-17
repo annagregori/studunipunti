@@ -1,5 +1,4 @@
 import logging
-import time
 import datetime
 import html
 import os
@@ -34,9 +33,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # --- Collezioni ---
-users_col = db["users"]
-warnings_col = db["warnings"]
-groups_col = db["groups"]
 members_col = db["members"]  # 🔥 collezione unificata per tutti i gruppi
 
 # --- Utility DB ---
@@ -164,8 +160,6 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- BAN AUTOMATICO OGNI 6 MESI ---
 
-# --- BAN AUTOMATICO OGNI 6 MESI ---
-
 async def auto_ban_zero_points(app):
     """Controlla ogni giorno se deve bannare utenti con 0 punti (ogni 6 mesi)."""
     while True:
@@ -222,18 +216,16 @@ def main():
     app.add_handler(CommandHandler("classifica", global_ranking))
     app.add_error_handler(error_handler)
 
-    # ✅ Funzione per avviare il task automatico dopo l'avvio del bot
-    async def start_autoban_task(app):
-        await asyncio.sleep(5)  # attende che il bot sia completamente avviato
+    # ✅ Hook chiamato DOPO l'avvio del loop
+    async def on_startup(app):
         app.create_task(auto_ban_zero_points(app))
-        logger.info("✅ Task auto_ban_zero_points avviato correttamente in background.")
+        logger.info("✅ Task auto_ban_zero_points avviato in background dopo la startup.")
 
-    # Avvia task dopo la startup
-    app.create_task(start_autoban_task(app))
+    # Registra il callback di startup
+    app.post_init = on_startup
 
-    # ✅ NON usare asyncio.run() — run_polling gestisce già l'event loop
+    # Avvia il bot — gestisce da solo il loop
     app.run_polling(close_loop=False)
 
 if __name__ == "__main__":
     main()
-
