@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import datetime
 import html
 import os
@@ -6,8 +7,7 @@ from pymongo import MongoClient
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes,
-    MessageHandler, filters, ChatMemberHandler
+    ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 )
 from telegram.error import Forbidden
 
@@ -19,6 +19,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # inserisci qui il chat id per log
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -42,7 +43,7 @@ def add_or_update_member(user, chat, points_delta=0):
 
     group_info = {
         "chat_id": chat.id,
-        "title": getattr(chat, "title", "Chat Privata"),
+        "title": chat.title,
         "joined_at": now,
         "points": max(0, points_delta),
         "last_message_at": now
@@ -134,6 +135,12 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Totale globale: <b>{total}</b> punti."
     )
 
+    if LOG_CHAT_ID:
+        await context.bot.send_message(
+            chat_id=LOG_CHAT_ID,
+            text=f"✅ {user.full_name} ha ricevuto {points} punti in {chat.title}"
+        )
+
 async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top = list(members_col.find().sort("total_points", -1).limit(10))
     if not top:
@@ -163,7 +170,6 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # --- AUTO BAN ---
 async def auto_ban_zero_points(app):
-    import asyncio
     while True:
         logger.info("🔁 Controllo utenti con 0 punti registrati da oltre 6 mesi...")
         now = datetime.datetime.utcnow()
@@ -186,12 +192,12 @@ async def auto_ban_zero_points(app):
 
                     await app.bot.ban_chat_member(chat_id, user_id)
                     logger.info(f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)")
-                    # Notifica in chat
-                    await app.bot.send_message(
-                        chat_id=chat_id,
-                        text=f"🚫 Utente <a href='tg://user?id={user_id}'>bannato</a> per 0 punti da più di 6 mesi.",
-                        parse_mode=ParseMode.HTML
-                    )
+
+                    if LOG_CHAT_ID:
+                        await app.bot.send_message(
+                            chat_id=LOG_CHAT_ID,
+                            text=f"🚫 Bannato {user_id} da {chat_id} (0 punti da 6 mesi)"
+                        )
                 except Forbidden:
                     logger.warning(f"❌ Non ho permessi per bannare in {chat_id}")
                 except Exception as e:
@@ -207,51 +213,53 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione uscita membri ---
-async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    user = update.chat_member.old_chat_member.user
-    new_status = update.chat_member.new_chat_member.status
-    if new_status in ("left", "kicked"):
-        members_col.update_one(
-            {"user_id": user.id},
-            {"$pull": {"groups": {"chat_id": chat_id}}}
-        )
-        logger.info(f"🗑️ Utente {user.id} rimosso dalla lista della chat {chat_id}")
-        # Notifica in chat
+# --- Gestione utenti che escono ---
+async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.message.left_chat_member
+    chat = update.effective_chat
+    if not user or not chat:
+        return
+
+    members_col.update_one(
+        {"user_id": user.id},
+        {"$pull": {"groups": {"chat_id": chat.id}}}
+    )
+
+    if LOG_CHAT_ID:
         await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"⚠️ Utente <a href='tg://user?id={user.id}'>uscito</a> dalla chat.",
-            parse_mode=ParseMode.HTML
+            chat_id=LOG_CHAT_ID,
+            text=f"⚠️ {user.full_name} è uscito da {chat.title}"
         )
 
-# --- Avvio ---
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+# --- MAIN ---
+async def main():
+    app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Comandi
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("globalranking", global_ranking))
-    app.add_handler(CommandHandler("listmembers", list_members))
-    app.add_handler(CommandHandler("punto", punto))
-    app.add_handler(CommandHandler("classifica", global_ranking))
-    app.add_error_handler(error_handler)
+    app_.add_handler(CommandHandler("start", start))
+    app_.add_handler(CommandHandler("globalranking", global_ranking))
+    app_.add_handler(CommandHandler("listmembers", list_members))
+    app_.add_handler(CommandHandler("punto", punto))
+    app_.add_handler(CommandHandler("classifica", global_ranking))
+    app_.add_error_handler(error_handler)
 
-    # Tracciamento messaggi
-    app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
+    # Tracciamento automatico messaggi
+    app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
+    app_.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
 
-    # Gestione uscita membri
-    app.add_handler(ChatMemberHandler(chat_member_update, ChatMemberHandler.CHAT_MEMBER))
-
-    # Task async auto-ban dopo avvio
-    async def start_auto_ban(app_):
-        app_.create_task(auto_ban_zero_points(app_))
+    # Avvio task auto-ban dopo l'inizializzazione
+    async def start_auto_ban(app__):
+        app__.create_task(auto_ban_zero_points(app__))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
-    app.post_init = start_auto_ban
+    app_.post_init = start_auto_ban
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    app.run_polling()
+    await app_.run_polling(close_loop=False)
 
+# --- Avvio ---
 if __name__ == "__main__":
-    main()
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
