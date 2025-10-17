@@ -1,5 +1,4 @@
 import logging
-import asyncio
 import datetime
 import html
 import os
@@ -247,7 +246,7 @@ async def main():
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
     app_.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
 
-    # Avvio task auto-ban dopo l'inizializzazione
+    # Avvio task auto-ban
     async def start_auto_ban(app__):
         app__.create_task(auto_ban_zero_points(app__))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
@@ -264,10 +263,9 @@ if __name__ == "__main__":
         import asyncio
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    import nest_asyncio
-    nest_asyncio.apply()  # permette di usare run_polling in loop già esistente
-
     import asyncio
-    import main
-    asyncio.get_event_loop().run_until_complete(main.main())
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    loop.run_forever()
+
 
