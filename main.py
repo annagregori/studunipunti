@@ -18,7 +18,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # inserisci qui il chat id per log
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -105,7 +105,7 @@ async def is_admin(update: Update) -> bool:
     except Exception:
         return False
 
-# --- Comandi Telegram ---
+# --- Comandi ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_or_update_member(update.message.from_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
@@ -204,7 +204,7 @@ async def auto_ban_zero_points(app):
 
         await asyncio.sleep(86400)  # Controllo una volta al giorno
 
-# --- Traccia tutti i messaggi ---
+# --- Tracciamento messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -212,7 +212,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione utenti che escono ---
+# --- Utente esce ---
 async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.left_chat_member
     chat = update.effective_chat
@@ -242,11 +242,11 @@ async def main():
     app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
 
-    # Tracciamento automatico messaggi
+    # Tracciamento messaggi
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
     app_.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
 
-    # Avvio task auto-ban
+    # Task auto-ban
     async def start_auto_ban(app__):
         app__.create_task(auto_ban_zero_points(app__))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
@@ -254,18 +254,16 @@ async def main():
     app_.post_init = start_auto_ban
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    await app_.run_polling(close_loop=False)
+    await app_.run_polling()
 
-# --- Avvio ---
+# --- Avvio su Railway ---
 if __name__ == "__main__":
-    import sys
+    import sys, asyncio
     if sys.platform == "win32":
-        import asyncio
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-    import asyncio
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+    # Avvio compatibile con Railway
+    asyncio.get_event_loop().create_task(main())
+
 
 
