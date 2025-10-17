@@ -16,16 +16,20 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-members_col = db["group_members"]
 
-if not BOT_TOKEN or not MONGO_URI:
-    raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
+if not BOT_TOKEN or not MONGO_URI or not DB_NAME:
+    raise Exception("BOT_TOKEN, MONGO_URI o DB_NAME non configurati!")
 
+# --- Connessione a MongoDB ---
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
+
+# --- Collezioni ---
 users_col = db["users"]
 points_col = db["points"]
 groups_col = db["groups"]
+members_col = db["group_members"]
+
 
 # --- Logging ---
 logging.basicConfig(
