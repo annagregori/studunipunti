@@ -1,13 +1,13 @@
 import logging
-import asyncio
 import datetime
 import html
 import os
 from pymongo import MongoClient
-from telegram import Update
+from telegram import Update, ChatMemberUpdated
 from telegram.constants import ParseMode
 from telegram.ext import (
-    ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+    ApplicationBuilder, CommandHandler, ContextTypes,
+    MessageHandler, ChatMemberHandler, filters
 )
 from telegram.error import Forbidden
 
@@ -42,7 +42,7 @@ def add_or_update_member(user, chat, points_delta=0):
 
     group_info = {
         "chat_id": chat.id,
-        "title": getattr(chat, "title", "Privata"),
+        "title": chat.title if chat.title else "Privato",
         "joined_at": now,
         "points": max(0, points_delta),
         "last_message_at": now
@@ -51,36 +51,22 @@ def add_or_update_member(user, chat, points_delta=0):
     if member:
         members_col.update_one(
             {"user_id": user.id},
-            {
-                "$set": {
-                    "username": user.username,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name
-                }
-            }
+            {"$set": {"username": user.username,
+                      "first_name": user.first_name,
+                      "last_name": user.last_name}}
         )
-        existing_group = next(
-            (g for g in member.get("groups", []) if g["chat_id"] == chat.id),
-            None
-        )
+        existing_group = next((g for g in member.get("groups", []) if g["chat_id"] == chat.id), None)
         if existing_group:
             members_col.update_one(
                 {"user_id": user.id, "groups.chat_id": chat.id},
-                {
-                    "$inc": {
-                        "groups.$.points": points_delta,
-                        "total_points": points_delta
-                    },
-                    "$set": {"groups.$.last_message_at": now}
-                }
+                {"$inc": {"groups.$.points": points_delta, "total_points": points_delta},
+                 "$set": {"groups.$.last_message_at": now}}
             )
         else:
             members_col.update_one(
                 {"user_id": user.id},
-                {
-                    "$push": {"groups": group_info},
-                    "$inc": {"total_points": points_delta}
-                }
+                {"$push": {"groups": group_info},
+                 "$inc": {"total_points": points_delta}}
             )
     else:
         members_col.insert_one({
@@ -92,6 +78,20 @@ def add_or_update_member(user, chat, points_delta=0):
             "total_points": points_delta,
             "created_at": now
         })
+
+
+def remove_member_from_group(user_id, chat_id):
+    """Rimuove un gruppo specifico dall'utente nel DB, se esce dal gruppo"""
+    member = members_col.find_one({"user_id": user_id})
+    if not member:
+        return
+    updated_groups = [g for g in member.get("groups", []) if g["chat_id"] != chat_id]
+    if updated_groups:
+        members_col.update_one({"user_id": user_id}, {"$set": {"groups": updated_groups}})
+    else:
+        # Se non rimangono gruppi, puoi decidere di rimuovere completamente l'utente
+        members_col.delete_one({"user_id": user_id})
+
 
 # --- Controllo admin ---
 async def is_admin(update: Update) -> bool:
@@ -107,7 +107,7 @@ async def is_admin(update: Update) -> bool:
 
 # --- Comandi Telegram ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    add_or_update_member(update.effective_user, update.effective_chat)
+    add_or_update_member(update.message.from_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
 
 async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -158,8 +158,6 @@ async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
-async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
-    logger.error(f"Update {update} caused error {context.error}")
 
 # --- AUTO BAN ---
 async def auto_ban_zero_points(app):
@@ -190,7 +188,8 @@ async def auto_ban_zero_points(app):
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)  # Controllo una volta al giorno
+        await asyncio.sleep(86400)
+
 
 # --- Traccia tutti i messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -200,12 +199,18 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Avvio bot ---
-if __name__ == "__main__":
-    import sys
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# --- Gestione utenti usciti dal gruppo ---
+async def track_left_member(update: ChatMemberUpdated, context: ContextTypes.DEFAULT_TYPE):
+    if update.old_chat_member.status not in ("left", "kicked") and update.new_chat_member.status in ("left", "kicked"):
+        user_id = update.new_chat_member.user.id
+        chat_id = update.chat.id
+        remove_member_from_group(user_id, chat_id)
+        logger.info(f"❌ Rimosso {user_id} dal DB per uscita da chat {chat_id}")
+
+
+# --- MAIN ---
+def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # Comandi
@@ -214,18 +219,33 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("listmembers", list_members))
     app.add_handler(CommandHandler("punto", punto))
     app.add_handler(CommandHandler("classifica", global_ranking))
-    app.add_error_handler(error_handler)
 
-    # Tracciamento messaggi
+    # Tracciamento automatico messaggi
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, track_message))
+
+    # Gestione utenti usciti dal gruppo
+    app.add_handler(ChatMemberHandler(track_left_member, ChatMemberHandler.CHAT_MEMBER))
+
+    # Error handler
+    app.add_error_handler(lambda update, context: logger.error(f"Update {update} caused error {context.error}"))
 
     # Task auto-ban
     async def on_startup(app):
+        import asyncio
         asyncio.create_task(auto_ban_zero_points(app))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
 
     app.post_init = on_startup
 
-    # Avvio polling
     logger.info("🤖 Bot avviato e in ascolto...")
     app.run_polling()
+
+
+# --- Avvio corretto ---
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    main()
+
