@@ -252,7 +252,7 @@ async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
         add_group_member(update.effective_chat.id, member)
 
         mention = get_user_mention(member)
-        await update.message.reply_text(f"👋 Benvenuto {mention}!", parse_mode=ParseMode.HTML)
+        await update.message.reply_text()
 
 
 # --- MAIN ---
