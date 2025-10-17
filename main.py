@@ -265,14 +265,11 @@ if __name__ == "__main__":
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
     # --- Handler ---
-    app_.add_handler(CommandHandler("start", start))
+app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
     app_.add_handler(CommandHandler("punto", punto))
-    app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
-    app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
-    app_.add_handler(ChatMemberHandler(member_status_update))
 
     # --- Avvia auto-ban ---
     async def start_auto_ban(app__):
