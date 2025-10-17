@@ -287,6 +287,28 @@ if __name__ == "__main__":
     if sys.platform == "win32":
         import asyncio
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    import asyncio
-    asyncio.run(main())
 
+    from telegram.ext import ApplicationBuilder
+
+    app_ = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    # Aggiungi handler e comandi
+    app_.add_handler(CommandHandler("start", start))
+    app_.add_handler(CommandHandler("globalranking", global_ranking))
+    app_.add_handler(CommandHandler("listmembers", list_members))
+    app_.add_handler(CommandHandler("punto", punto))
+    app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
+    app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
+    app_.add_error_handler(error_handler)
+
+    # Avvia task periodico per pulizia e auto-ban
+    async def start_auto_tasks(app__):
+        app__.create_task(auto_tasks(app__))
+        logger.info("✅ Task auto_tasks avviato correttamente.")
+
+    app_.post_init = start_auto_tasks
+
+    logger.info("🤖 Bot avviato e in ascolto su Railway!")
+
+    # Qui **non usare asyncio.run()**
+    app_.run_polling(close_loop=False)
