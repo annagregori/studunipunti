@@ -6,7 +6,9 @@ import os
 from pymongo import MongoClient
 from telegram import Update
 from telegram.constants import ParseMode
-from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
+)
 from telegram.error import Forbidden
 
 # --- Carica dotenv solo in locale ---
@@ -23,7 +25,6 @@ if not BOT_TOKEN or not MONGO_URI:
 
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client[DB_NAME]
-members_col = db["members"]
 
 # --- Logging ---
 logging.basicConfig(
@@ -31,6 +32,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+members_col = db["members"]
 
 # --- Utility DB ---
 def add_or_update_member(user, chat, points_delta=0):
@@ -187,35 +190,7 @@ async def auto_ban_zero_points(app):
                 except Exception as e:
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
-        await asyncio.sleep(86400)
+        await asyncio.sleep(86400)  # Controllo una volta al giorno
 
-# --- MAIN ---
-async def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("globalranking", global_ranking))
-    app.add_handler(CommandHandler("listmembers", list_members))
-    app.add_handler(CommandHandler("punto", punto))
-    app.add_handler(CommandHandler("classifica", global_ranking))
-    app.add_error_handler(error_handler)
-
-    async def post_init(app):
-        asyncio.create_task(auto_ban_zero_points(app))
-        logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
-
-    app.post_init = post_init
-
-    logger.info("🤖 Bot avviato e in ascolto...")
-    # 👇 NON chiudiamo mai il loop
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
-    await asyncio.Event().wait()  # Mantiene il processo vivo per sempre
-
-if __name__ == "__main__":
-    try:
-        asyncio.get_event_loop().run_until_complete(main())
-    except KeyboardInterrupt:
-        logger.info("🛑 Arresto manuale del bot.")
+# --- Traccia tut
 
