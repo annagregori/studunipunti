@@ -104,15 +104,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
     add_or_update_member(update.message.from_user, update.effective_chat)
 
-async def new_member(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat = update.effective_chat
-    for member in update.message.new_chat_members:
-        add_or_update_member(member, chat)
-        await update.message.reply_text(
-            f"👋 Benvenuto {html.escape(member.first_name)} in {chat.title}!",
-            parse_mode=ParseMode.HTML
-        )
-
 async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Mostra la classifica globale di tutti i gruppi."""
     top_members = list(members_col.find().sort("total_points", -1).limit(10))
