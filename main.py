@@ -15,7 +15,6 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
     from dotenv import load_dotenv
     load_dotenv()
 
-
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
@@ -265,6 +264,3 @@ if __name__ == "__main__":
 
     # Avvio compatibile con Railway
     asyncio.get_event_loop().create_task(main())
-
-
-
