@@ -1,4 +1,5 @@
 import logging
+import asyncio
 import datetime
 import html
 import os
@@ -9,6 +10,10 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes, MessageHandler, filters
 )
 from telegram.error import Forbidden
+import nest_asyncio
+
+# --- Applica patch per Railway / Jupyter ---
+nest_asyncio.apply()
 
 # --- Carica dotenv solo in locale ---
 if os.getenv("RAILWAY_ENVIRONMENT") is None:
@@ -18,7 +23,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # Chat ID per log
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -105,7 +110,7 @@ async def is_admin(update: Update) -> bool:
     except Exception:
         return False
 
-# --- Comandi ---
+# --- Comandi Telegram ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_or_update_member(update.message.from_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
@@ -204,7 +209,7 @@ async def auto_ban_zero_points(app):
 
         await asyncio.sleep(86400)  # Controllo una volta al giorno
 
-# --- Tracciamento messaggi ---
+# --- Traccia tutti i messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
@@ -212,7 +217,7 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Utente esce ---
+# --- Gestione utenti che escono ---
 async def member_left(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.left_chat_member
     chat = update.effective_chat
@@ -242,11 +247,11 @@ async def main():
     app_.add_handler(CommandHandler("classifica", global_ranking))
     app_.add_error_handler(error_handler)
 
-    # Tracciamento messaggi
+    # Tracciamento automatico messaggi
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
     app_.add_handler(MessageHandler(filters.StatusUpdate.LEFT_CHAT_MEMBER, member_left))
 
-    # Task auto-ban
+    # Avvio task auto-ban dopo l'inizializzazione
     async def start_auto_ban(app__):
         app__.create_task(auto_ban_zero_points(app__))
         logger.info("✅ Task auto_ban_zero_points avviato correttamente.")
@@ -254,21 +259,13 @@ async def main():
     app_.post_init = start_auto_ban
 
     logger.info("🤖 Bot avviato e in ascolto...")
-    await app_.run_polling()
+    await app_.run_polling(close_loop=False)
 
+# --- Avvio bot senza asyncio.run() ---
 if __name__ == "__main__":
-    import sys
-    if sys.platform == "win32":
-        import asyncio
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    import asyncio
-    import logging
-
-    import telegram.ext as tg
-
-    # main() deve essere async e chiamato così:
-    import main_module  # dove hai definito main()
-    import asyncio
-
-    asyncio.get_event_loop().run_until_complete(main_module.main())
-
+    try:
+        loop = asyncio.get_event_loop()
+        loop.create_task(main())
+        loop.run_forever()
+    except KeyboardInterrupt:
+        logger.info("Bot terminato manualmente")
