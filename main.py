@@ -262,8 +262,25 @@ async def main():
 
 # --- Avvio ---
 if __name__ == "__main__":
+    import asyncio
     import sys
+
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    asyncio.run(main())
+
+    # Crea l'app
+    from telegram.ext import ApplicationBuilder
+    app_ = ApplicationBuilder().token(os.getenv("BOT_TOKEN")).build()
+
+    # Inizializza handlers e comandi come nel main()
+    # Esempio minimo:
+    # app_.add_handler(CommandHandler("start", start))
+
+    # Avvia il bot in polling
+    asyncio.get_event_loop().create_task(app_.run_polling(close_loop=False))
+    logger.info("🤖 Bot avviato e in ascolto su Railway!")
+
+    # Mantieni il loop attivo
+    asyncio.get_event_loop().run_forever()
+
 
