@@ -184,7 +184,6 @@ def main():
 
     # Handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.StatusUpdate.NEW_CHAT_MEMBERS, new_member))
     app.add_handler(CommandHandler("globalranking", global_ranking))
     app.add_handler(CommandHandler("listmembers", list_members))
     app.add_handler(CommandHandler("punto", punto))
