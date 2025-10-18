@@ -201,32 +201,40 @@ async def auto_tasks(app):
                     logger.error(f"Errore durante ban di {user_id}: {e}")
 
         # --- Pulizia membri usciti ---
-        # Controlla tutti i gruppi registrati nel DB
-        groups = members_col.distinct("groups.chat_id")
-        for chat_id in groups:
-            try:
-                # Lista attuale membri del gruppo
-                chat_members = await app.bot.get_chat_administrators(chat_id)
-                chat_member_ids = [m.user.id for m in chat_members]
+# --- Pulizia automatica utenti usciti ---
+async def clean_inactive_members(app):
+    await asyncio.sleep(120)  # attende 2 minuti dopo l'avvio
+    while True:
+        logger.info("🧹 Avvio pulizia utenti non più presenti nei gruppi...")
 
-                # Controlla tutti i membri registrati in quel gruppo
-                for m in members_col.find({"groups.chat_id": chat_id}):
-                    if m["user_id"] not in chat_member_ids:
+        all_members = list(members_col.find())
+        for member in all_members:
+            user_id = member["user_id"]
+            for group in member.get("groups", []):
+                chat_id = group["chat_id"]
+
+                try:
+                    chat_member = await app.bot.get_chat_member(chat_id, user_id)
+                    if chat_member.status in ("left", "kicked"):
                         members_col.update_one(
-                            {"user_id": m["user_id"]},
+                            {"user_id": user_id},
                             {"$pull": {"groups": {"chat_id": chat_id}}}
                         )
+                        logger.info(f"⚠️ {user_id} non è più in {chat_id}, rimosso dal DB")
+
                         if LOG_CHAT_ID:
                             await app.bot.send_message(
-                                chat_id=LOG_CHAT_ID,
-                                text=f"⚠️ {m.get('first_name', 'Utente')} non è più presente in {chat_id}, rimosso dal DB"
+                                LOG_CHAT_ID,
+                                f"⚠️ {chat_member.user.full_name} non è più presente in {chat_id}, rimosso dal DB"
                             )
-            except Forbidden:
-                logger.warning(f"❌ Non ho permessi per leggere membri in {chat_id}")
-            except Exception as e:
-                logger.error(f"Errore durante cleanup in {chat_id}: {e}")
 
-        await asyncio.sleep(3600)  # Controllo ogni ora
+                except Forbidden:
+                    logger.warning(f"⚠️ Nessun accesso a {chat_id}, salto controllo.")
+                except Exception as e:
+                    logger.error(f"Errore durante il controllo {user_id} in {chat_id}: {e}")
+
+        await asyncio.sleep(86400)  # ogni 24 ore
+
 
 # --- Traccia messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
