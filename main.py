@@ -10,7 +10,7 @@ from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes,
     MessageHandler, ChatMemberHandler, filters
 )
-from telegram.error import Forbidden, BadRequest
+from telegram.error import Forbidden
 
 # --- Carica dotenv solo in locale ---
 if os.getenv("RAILWAY_ENVIRONMENT") is None:
@@ -20,7 +20,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # Chat ID per log
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -52,16 +52,20 @@ def add_or_update_member(user, chat, points_delta=0):
     if member:
         members_col.update_one(
             {"user_id": user.id},
-            {"$set": {
-                "username": user.username,
-                "first_name": user.first_name,
-                "last_name": user.last_name
-            }}
+            {
+                "$set": {
+                    "username": user.username,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name
+                }
+            }
         )
+
         existing_group = next(
             (g for g in member.get("groups", []) if g["chat_id"] == chat.id),
             None
         )
+
         if existing_group:
             members_col.update_one(
                 {"user_id": user.id, "groups.chat_id": chat.id},
@@ -76,7 +80,10 @@ def add_or_update_member(user, chat, points_delta=0):
         else:
             members_col.update_one(
                 {"user_id": user.id},
-                {"$push": {"groups": group_info}, "$inc": {"total_points": points_delta}}
+                {
+                    "$push": {"groups": group_info},
+                    "$inc": {"total_points": points_delta}
+                }
             )
     else:
         members_col.insert_one({
@@ -93,13 +100,15 @@ def add_or_update_member(user, chat, points_delta=0):
 async def is_admin(update: Update) -> bool:
     chat = update.effective_chat
     user = update.effective_user
+    if not chat or not user:
+        return False
     try:
         member = await chat.get_member(user.id)
         return member.status in ("administrator", "creator")
     except Exception:
         return False
 
-# --- Comandi ---
+# --- Comandi Telegram ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_or_update_member(update.message.from_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
@@ -115,7 +124,9 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     user = update.message.reply_to_message.from_user
     chat = update.effective_chat
-    points = int(context.args[0]) if context.args and context.args[0].isdigit() else 1
+    points = 1
+    if context.args and context.args[0].isdigit():
+        points = int(context.args[0])
 
     add_or_update_member(user, chat, points_delta=points)
     member = members_col.find_one({"user_id": user.id})
@@ -128,8 +139,8 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if LOG_CHAT_ID:
         await context.bot.send_message(
-            LOG_CHAT_ID,
-            f"✅ {user.full_name} ha ricevuto {points} punti in {chat.title}"
+            chat_id=LOG_CHAT_ID,
+            text=f"✅ {user.full_name} ha ricevuto {points} punti in {chat.title}"
         )
 
 async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -146,20 +157,25 @@ async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
     members = list(members_col.find().sort("first_name", 1))
+    if not members:
+        await update.message.reply_text("Nessun membro registrato.")
+        return
+
     msg = "<b>👥 Membri registrati globalmente:</b>\n"
     for i, m in enumerate(members, start=1):
         name = html.escape(m.get("first_name", "Utente"))
         msg += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
-# --- Tracciamento messaggi ---
+# --- Gestione messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     chat = update.effective_chat
-    if user and chat:
-        add_or_update_member(user, chat)
+    if not user or not chat:
+        return
+    add_or_update_member(user, chat)
 
-# --- Gestione uscita immediata ---
+# --- Gestione uscite in tempo reale ---
 async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_status = update.chat_member.new_chat_member.status
     user = update.chat_member.new_chat_member.user
@@ -171,23 +187,53 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
             {"$pull": {"groups": {"chat_id": chat.id}}}
         )
         if LOG_CHAT_ID:
-            await context.bot.send_message(LOG_CHAT_ID, f"⚠️ {user.full_name} è uscito da {chat.title}")
+            await context.bot.send_message(
+                chat_id=LOG_CHAT_ID,
+                text=f"⚠️ {user.full_name} è uscito da {chat.title}"
+            )
 
-# --- Task automatici: ban + pulizia ---
-async def auto_tasks(app):
-    await asyncio.sleep(120)  # aspetta 2 minuti dopo l’avvio
+# --- Pulizia automatica utenti usciti ---
+async def clean_inactive_members(app):
+    await asyncio.sleep(120)
     while True:
-        logger.info("🧹 Controllo utenti non attivi e pulizia DB...")
+        logger.info("🧹 Avvio pulizia utenti non più presenti nei gruppi...")
+        all_members = list(members_col.find())
+        for member in all_members:
+            user_id = member["user_id"]
+            for group in member.get("groups", []):
+                chat_id = group["chat_id"]
+                try:
+                    chat_member = await app.bot.get_chat_member(chat_id, user_id)
+                    if chat_member.status in ("left", "kicked"):
+                        members_col.update_one(
+                            {"user_id": user_id},
+                            {"$pull": {"groups": {"chat_id": chat_id}}}
+                        )
+                        if LOG_CHAT_ID:
+                            await app.bot.send_message(
+                                LOG_CHAT_ID,
+                                f"⚠️ {chat_member.user.full_name} non è più presente in {chat_id}, rimosso dal DB"
+                            )
+                except Forbidden:
+                    continue
+                except Exception as e:
+                    logger.error(f"Errore durante il controllo {user_id} in {chat_id}: {e}")
+        await asyncio.sleep(86400)  # ogni 24 ore
+
+# --- Auto-ban utenti 0 punti da 6 mesi ---
+async def auto_tasks(app):
+    while True:
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
-
-        # --- Auto-ban utenti con 0 punti da >6 mesi ---
-        users = list(members_col.find({"total_points": 0, "created_at": {"$lte": six_months_ago}}))
+        users = list(members_col.find({
+            "total_points": 0,
+            "created_at": {"$lte": six_months_ago}
+        }))
         for user in users:
             for g in user.get("groups", []):
                 try:
-                    m = await app.bot.get_chat_member(g["chat_id"], user["user_id"])
-                    if m.status not in ("administrator", "creator"):
+                    member = await app.bot.get_chat_member(g["chat_id"], user["user_id"])
+                    if member.status not in ("administrator", "creator"):
                         await app.bot.ban_chat_member(g["chat_id"], user["user_id"])
                         if LOG_CHAT_ID:
                             await app.bot.send_message(
@@ -195,37 +241,21 @@ async def auto_tasks(app):
                                 f"🚫 Bannato {user['user_id']} da {g['chat_id']} (0 punti da 6 mesi)"
                             )
                 except Forbidden:
-                    continue
+                    pass
                 except Exception as e:
                     logger.error(f"Errore ban {user['user_id']}: {e}")
-
-        # --- Pulizia utenti non più presenti ---
-        all_members = list(members_col.find())
-        for member in all_members:
-            for g in list(member.get("groups", [])):
-                try:
-                    cm = await app.bot.get_chat_member(g["chat_id"], member["user_id"])
-                    if cm.status in ("left", "kicked"):
-                        members_col.update_one(
-                            {"user_id": member["user_id"]},
-                            {"$pull": {"groups": {"chat_id": g["chat_id"]}}}
-                        )
-                        if LOG_CHAT_ID:
-                            await app.bot.send_message(
-                                LOG_CHAT_ID,
-                                f"⚠️ {cm.user.full_name} non è più in {g['title']}, rimosso dal DB"
-                            )
-                except (Forbidden, BadRequest):
-                    continue
-                except Exception as e:
-                    logger.error(f"Errore clean {member['user_id']} in {g['chat_id']}: {e}")
-
-        await asyncio.sleep(86400)  # ogni 24h
+        await asyncio.sleep(86400)
 
 # --- MAIN ---
-async def main():
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        import asyncio
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
+    # Handlers
     app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
@@ -233,14 +263,14 @@ async def main():
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
     app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
 
-    async def start_auto(app__):
+    # Task di manutenzione
+    async def start_auto_tasks(app__):
         app__.create_task(auto_tasks(app__))
-        logger.info("✅ Task auto_tasks avviato correttamente.")
+        app__.create_task(clean_inactive_members(app__))
+        logger.info("✅ Task di manutenzione avviati correttamente.")
 
-    app_.post_init = start_auto
+    app_.post_init = start_auto_tasks
 
-    logger.info("🤖 Bot avviato e in ascolto...")
-    await app_.run_polling(close_loop=False)
+    logger.info("🤖 Bot avviato e in ascolto su Railway!")
+    app_.run_polling()
 
-if __name__ == "__main__":
-    asyncio.run(main())
