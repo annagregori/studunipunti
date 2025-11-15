@@ -20,7 +20,7 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # Chat ID per log
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -60,12 +60,9 @@ def add_or_update_member(user, chat, points_delta=0):
                 }
             }
         )
-
         existing_group = next(
-            (g for g in member.get("groups", []) if g["chat_id"] == chat.id),
-            None
+            (g for g in member.get("groups", []) if g["chat_id"] == chat.id), None
         )
-
         if existing_group:
             members_col.update_one(
                 {"user_id": user.id, "groups.chat_id": chat.id},
@@ -108,7 +105,7 @@ async def is_admin(update: Update) -> bool:
     except Exception:
         return False
 
-# --- Comandi Telegram ---
+# --- Comandi ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     add_or_update_member(update.message.from_user, update.effective_chat)
     await update.message.reply_text("🤖 Ciao! Sto tracciando utenti e punti globalmente.")
@@ -117,26 +114,21 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update):
         await update.message.reply_text("Solo gli amministratori possono assegnare punti.")
         return
-
     if not update.message.reply_to_message:
         await update.message.reply_text("Rispondi a un messaggio per assegnare punti.")
         return
-
     user = update.message.reply_to_message.from_user
     chat = update.effective_chat
     points = 1
     if context.args and context.args[0].isdigit():
         points = int(context.args[0])
-
     add_or_update_member(user, chat, points_delta=points)
     member = members_col.find_one({"user_id": user.id})
     total = member.get("total_points", 0)
-
     await update.message.reply_html(
         f"✅ {html.escape(user.first_name)} ha ricevuto <b>{points}</b> punti!\n"
         f"Totale globale: <b>{total}</b> punti."
     )
-
     if LOG_CHAT_ID:
         await context.bot.send_message(
             chat_id=LOG_CHAT_ID,
@@ -148,24 +140,31 @@ async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not top:
         await update.message.reply_text("Nessun membro registrato.")
         return
-
     msg = "<b>🏆 Classifica Globale</b>\n"
     for i, m in enumerate(top, start=1):
         name = html.escape(m.get("first_name", "Utente"))
         msg += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
+# --- VERSIONE AGGIORNATA ---
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Invia la lista completa dei membri spezzata in più messaggi se necessario."""
     members = list(members_col.find().sort("first_name", 1))
     if not members:
         await update.message.reply_text("Nessun membro registrato.")
         return
 
-    msg = "<b>👥 Membri registrati globalmente:</b>\n"
+    text = "<b>👥 Membri registrati globalmente:</b>\n\n"
+
     for i, m in enumerate(members, start=1):
         name = html.escape(m.get("first_name", "Utente"))
-        msg += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        text += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
+
+    MAX_LEN = 3500
+    parts = [text[i:i+MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+
+    for part in parts:
+        await update.message.reply_text(part, parse_mode=ParseMode.HTML)
 
 # --- Gestione messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -175,12 +174,11 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione uscite in tempo reale ---
+# --- Gestione uscita ---
 async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     new_status = update.chat_member.new_chat_member.status
     user = update.chat_member.new_chat_member.user
     chat = update.effective_chat
-
     if new_status in ("left", "kicked"):
         members_col.update_one(
             {"user_id": user.id},
@@ -192,7 +190,7 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
                 text=f"⚠️ {user.full_name} è uscito da {chat.title}"
             )
 
-# --- Pulizia automatica utenti usciti ---
+# --- Pulizia periodica ---
 async def clean_inactive_members(app):
     await asyncio.sleep(120)
     while True:
@@ -218,9 +216,9 @@ async def clean_inactive_members(app):
                     continue
                 except Exception as e:
                     logger.error(f"Errore durante il controllo {user_id} in {chat_id}: {e}")
-        await asyncio.sleep(86400)  # ogni 24 ore
+        await asyncio.sleep(86400)
 
-# --- Auto-ban utenti 0 punti da 6 mesi ---
+# --- Auto-ban ---
 async def auto_tasks(app):
     while True:
         now = datetime.datetime.utcnow()
@@ -255,7 +253,6 @@ if __name__ == "__main__":
 
     app_ = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Handlers
     app_.add_handler(CommandHandler("start", start))
     app_.add_handler(CommandHandler("globalranking", global_ranking))
     app_.add_handler(CommandHandler("listmembers", list_members))
@@ -263,7 +260,6 @@ if __name__ == "__main__":
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
     app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
 
-    # Task di manutenzione
     async def start_auto_tasks(app__):
         app__.create_task(auto_tasks(app__))
         app__.create_task(clean_inactive_members(app__))
@@ -273,4 +269,5 @@ if __name__ == "__main__":
 
     logger.info("🤖 Bot avviato e in ascolto su Railway!")
     app_.run_polling()
+
 
