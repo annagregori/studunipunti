@@ -20,7 +20,8 @@ if os.getenv("RAILWAY_ENVIRONMENT") is None:
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME")
-LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))
+
+LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID", 0))  # Chat ID per log
 
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
@@ -38,6 +39,10 @@ logger = logging.getLogger(__name__)
 
 # --- Utility DB ---
 def add_or_update_member(user, chat, points_delta=0):
+    # Esclusione bot di sistema
+    if user.username == "GroupAnonymousBot":
+        return
+
     now = datetime.datetime.utcnow()
     member = members_col.find_one({"user_id": user.id})
 
@@ -52,35 +57,30 @@ def add_or_update_member(user, chat, points_delta=0):
     if member:
         members_col.update_one(
             {"user_id": user.id},
-            {
-                "$set": {
-                    "username": user.username,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name
-                }
-            }
+            {"$set": {
+                "username": user.username,
+                "first_name": user.first_name,
+                "last_name": user.last_name
+            }}
         )
+
         existing_group = next(
-            (g for g in member.get("groups", []) if g["chat_id"] == chat.id), None
+            (g for g in member.get("groups", []) if g["chat_id"] == chat.id),
+            None
         )
+
         if existing_group:
             members_col.update_one(
                 {"user_id": user.id, "groups.chat_id": chat.id},
                 {
-                    "$inc": {
-                        "groups.$.points": points_delta,
-                        "total_points": points_delta
-                    },
+                    "$inc": {"groups.$.points": points_delta, "total_points": points_delta},
                     "$set": {"groups.$.last_message_at": now}
                 }
             )
         else:
             members_col.update_one(
                 {"user_id": user.id},
-                {
-                    "$push": {"groups": group_info},
-                    "$inc": {"total_points": points_delta}
-                }
+                {"$push": {"groups": group_info}, "$inc": {"total_points": points_delta}}
             )
     else:
         members_col.insert_one({
@@ -114,25 +114,36 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not await is_admin(update):
         await update.message.reply_text("Solo gli amministratori possono assegnare punti.")
         return
+
     if not update.message.reply_to_message:
         await update.message.reply_text("Rispondi a un messaggio per assegnare punti.")
         return
+
     user = update.message.reply_to_message.from_user
     chat = update.effective_chat
+
+    if user.username == "GroupAnonymousBot":
+        await update.message.reply_text("❌ Non puoi assegnare punti a GroupAnonymousBot.")
+        return
+
     points = 1
     if context.args and context.args[0].isdigit():
         points = int(context.args[0])
+
     add_or_update_member(user, chat, points_delta=points)
+
     member = members_col.find_one({"user_id": user.id})
     total = member.get("total_points", 0)
+
     await update.message.reply_html(
         f"✅ {html.escape(user.first_name)} ha ricevuto <b>{points}</b> punti!\n"
         f"Totale globale: <b>{total}</b> punti."
     )
+
     if LOG_CHAT_ID:
         await context.bot.send_message(
             chat_id=LOG_CHAT_ID,
-            text=f"✅ {user.full_name} ha ricevuto {points} punti in {chat.title}"
+            text=f"➕ {user.full_name} ha ricevuto {points} punti in {chat.title}"
         )
 
 async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -140,31 +151,35 @@ async def global_ranking(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not top:
         await update.message.reply_text("Nessun membro registrato.")
         return
+
     msg = "<b>🏆 Classifica Globale</b>\n"
     for i, m in enumerate(top, start=1):
-        name = html.escape(m.get("first_name", "Utente"))
-        msg += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
+        name = html.escape(m.get("first_name", "Utente") or "Utente")
+        msg += f'{i}. <a href="tg://user?id={m["user_id"]}">{name}</a> — {m.get("total_points", 0)} punti\n'
+
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
-# --- VERSIONE AGGIORNATA ---
 async def list_members(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Invia la lista completa dei membri spezzata in più messaggi se necessario."""
     members = list(members_col.find().sort("first_name", 1))
     if not members:
         await update.message.reply_text("Nessun membro registrato.")
         return
 
-    text = "<b>👥 Membri registrati globalmente:</b>\n\n"
+    msg = "<b>👥 Membri registrati globalmente:</b>\n"
 
     for i, m in enumerate(members, start=1):
-        name = html.escape(m.get("first_name", "Utente"))
-        text += f"{i}. <a href='tg://user?id={m['user_id']}'>{name}</a> — {m.get('total_points', 0)} punti\n"
+        user_id = m["user_id"]
+        name = html.escape(m.get("first_name", "Utente") or "Utente")
+        total = m.get("total_points", 0)
 
-    MAX_LEN = 3500
-    parts = [text[i:i+MAX_LEN] for i in range(0, len(text), MAX_LEN)]
+        msg += f'{i}. <a href="tg://user?id={user_id}">{name}</a> — {total} punti\n'
 
-    for part in parts:
-        await update.message.reply_text(part, parse_mode=ParseMode.HTML)
+        if len(msg) > 3500:
+            await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+            msg = ""
+
+    if msg:
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 # --- Gestione messaggi ---
 async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -174,11 +189,16 @@ async def track_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     add_or_update_member(user, chat)
 
-# --- Gestione uscita ---
+# --- Gestione uscite ---
 async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    new_status = update.chat_member.new_chat_member.status
     user = update.chat_member.new_chat_member.user
+    new_status = update.chat_member.new_chat_member.status
+
+    if user.username == "GroupAnonymousBot":
+        return
+
     chat = update.effective_chat
+
     if new_status in ("left", "kicked"):
         members_col.update_one(
             {"user_id": user.id},
@@ -186,18 +206,19 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         if LOG_CHAT_ID:
             await context.bot.send_message(
-                chat_id=LOG_CHAT_ID,
-                text=f"⚠️ {user.full_name} è uscito da {chat.title}"
+                LOG_CHAT_ID,
+                f"⚠️ {user.full_name} è uscito da {chat.title}"
             )
 
-# --- Pulizia periodica ---
+# --- Pulizia automatica utenti usciti ---
 async def clean_inactive_members(app):
     await asyncio.sleep(120)
     while True:
-        logger.info("🧹 Avvio pulizia utenti non più presenti nei gruppi...")
+        logger.info("🧹 Avvio pulizia utenti...")
         all_members = list(members_col.find())
         for member in all_members:
             user_id = member["user_id"]
+
             for group in member.get("groups", []):
                 chat_id = group["chat_id"]
                 try:
@@ -210,23 +231,26 @@ async def clean_inactive_members(app):
                         if LOG_CHAT_ID:
                             await app.bot.send_message(
                                 LOG_CHAT_ID,
-                                f"⚠️ {chat_member.user.full_name} non è più presente in {chat_id}, rimosso dal DB"
+                                f"⚠️ {chat_member.user.full_name} non è più in {chat_id}, rimosso dal DB."
                             )
                 except Forbidden:
-                    continue
+                    pass
                 except Exception as e:
-                    logger.error(f"Errore durante il controllo {user_id} in {chat_id}: {e}")
+                    logger.error(f"Errore pulizia {user_id} in {chat_id}: {e}")
+
         await asyncio.sleep(86400)
 
-# --- Auto-ban ---
+# --- Auto ban 0 punti dopo 6 mesi ---
 async def auto_tasks(app):
     while True:
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
+
         users = list(members_col.find({
             "total_points": 0,
             "created_at": {"$lte": six_months_ago}
         }))
+
         for user in users:
             for g in user.get("groups", []):
                 try:
@@ -242,6 +266,7 @@ async def auto_tasks(app):
                     pass
                 except Exception as e:
                     logger.error(f"Errore ban {user['user_id']}: {e}")
+
         await asyncio.sleep(86400)
 
 # --- MAIN ---
@@ -263,11 +288,9 @@ if __name__ == "__main__":
     async def start_auto_tasks(app__):
         app__.create_task(auto_tasks(app__))
         app__.create_task(clean_inactive_members(app__))
-        logger.info("✅ Task di manutenzione avviati correttamente.")
+        logger.info("✅ Task di manutenzione avviati.")
 
     app_.post_init = start_auto_tasks
 
-    logger.info("🤖 Bot avviato e in ascolto su Railway!")
+    logger.info("🤖 Bot avviato su Railway!")
     app_.run_polling()
-
-
