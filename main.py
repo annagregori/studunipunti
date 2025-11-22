@@ -200,15 +200,31 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
     chat = update.effective_chat
 
     if new_status in ("left", "kicked"):
+        member = members_col.find_one({"user_id": user.id})
+        if not member:
+            return
+
+        # Rimuove comunque il gruppo dai suoi gruppi
         members_col.update_one(
             {"user_id": user.id},
             {"$pull": {"groups": {"chat_id": chat.id}}}
         )
-        if LOG_CHAT_ID:
-            await context.bot.send_message(
-                LOG_CHAT_ID,
-                f"⚠️ {user.full_name} è uscito da {chat.title}"
-            )
+
+        # Se ha 0 punti → rimuovi l’utente dal DB
+        if member.get("total_points", 0) == 0:
+            members_col.delete_one({"user_id": user.id})
+            if LOG_CHAT_ID:
+                await context.bot.send_message(
+                    LOG_CHAT_ID,
+                    f"🗑️ {user.full_name} uscito da {chat.title} ed eliminato dal DB (0 punti)"
+                )
+        else:
+            if LOG_CHAT_ID:
+                await context.bot.send_message(
+                    LOG_CHAT_ID,
+                    f"⚠️ {user.full_name} uscito da {chat.title}, ma mantenuto nel DB (ha punti)"
+                )
+
 
 # --- Pulizia automatica utenti usciti ---
 async def clean_inactive_members(app):
@@ -216,29 +232,45 @@ async def clean_inactive_members(app):
     while True:
         logger.info("🧹 Avvio pulizia utenti...")
         all_members = list(members_col.find())
+
         for member in all_members:
             user_id = member["user_id"]
+            total_points = member.get("total_points", 0)
 
-            for group in member.get("groups", []):
+            for group in list(member.get("groups", [])):
                 chat_id = group["chat_id"]
                 try:
                     chat_member = await app.bot.get_chat_member(chat_id, user_id)
+
                     if chat_member.status in ("left", "kicked"):
+
+                        # Rimuovi il gruppo
                         members_col.update_one(
                             {"user_id": user_id},
                             {"$pull": {"groups": {"chat_id": chat_id}}}
                         )
-                        if LOG_CHAT_ID:
-                            await app.bot.send_message(
-                                LOG_CHAT_ID,
-                                f"⚠️ {chat_member.user.full_name} non è più in {chat_id}, rimosso dal DB."
-                            )
+
+                        logger.info(f"Rimosso gruppo {chat_id} da {user_id}")
+
+                        # Ricarica i dati utente
+                        updated = members_col.find_one({"user_id": user_id})
+
+                        # Se total_points = 0 e non è più in nessun gruppo → elimina dal DB
+                        if updated and updated.get("total_points", 0) == 0 and len(updated.get("groups", [])) == 0:
+                            members_col.delete_one({"user_id": user_id})
+                            if LOG_CHAT_ID:
+                                await app.bot.send_message(
+                                    LOG_CHAT_ID,
+                                    f"🗑️ {chat_member.user.full_name} eliminato dal DB (0 punti)"
+                                )
+
                 except Forbidden:
                     pass
                 except Exception as e:
                     logger.error(f"Errore pulizia {user_id} in {chat_id}: {e}")
 
         await asyncio.sleep(86400)
+
 
 # --- Auto ban 0 punti dopo 6 mesi ---
 async def auto_tasks(app):
