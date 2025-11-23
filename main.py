@@ -308,6 +308,40 @@ async def auto_tasks(app):
         await asyncio.sleep(86400)
 
 
+async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+
+    # Deve essere in chat privata
+    if chat.type != "private":
+        await update.message.reply_text("⚠️ Usa questo comando in chat privata con il bot.")
+        return
+
+    user = update.effective_user
+    member = members_col.find_one({"user_id": user.id})
+
+    if not member:
+        await update.message.reply_text("⚠️ Non sei ancora registrato nel database.")
+        return
+
+    total = member.get("total_points", 0)
+    groups = member.get("groups", [])
+
+    msg = f"👤 <b>I tuoi punti</b>\n\n"
+    msg += f"🌍 <b>Punti globali:</b> {total}\n\n"
+    msg += "<b>Punti nei gruppi:</b>\n"
+
+    if not groups:
+        msg += "• Nessun gruppo registrato.\n"
+    else:
+        for g in groups:
+            title = html.escape(g.get("title", "Sconosciuto"))
+            pts = g.get("points", 0)
+            msg += f"• <b>{title}</b>: {pts} punti\n"
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
+
+
 # --- MAIN ---
 if __name__ == "__main__":
     import sys
@@ -323,6 +357,8 @@ if __name__ == "__main__":
     app_.add_handler(CommandHandler("punto", punto))
     app_.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
     app_.add_handler(ChatMemberHandler(member_status_update, ChatMemberHandler.CHAT_MEMBER))
+    app_.add_handler(CommandHandler("imieipunti", imieipunti))
+
 
     async def start_auto_tasks(app__):
         app__.create_task(auto_tasks(app__))
