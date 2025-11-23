@@ -338,7 +338,8 @@ async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg += "• Nessun gruppo registrato.\n"
     else:
         for g in groups:
-            title = html.escape(g.get("title", "Sconosciuto"))
+            raw_title = g.get("title") or "Sconosciuto"
+            title = html.escape(str(raw_title))
             pts = g.get("points", 0)
             msg += f"• <b>{title}</b>: {pts} punti\n"
 
