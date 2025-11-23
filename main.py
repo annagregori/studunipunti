@@ -275,6 +275,12 @@ async def clean_inactive_members(app):
 # --- Auto ban 0 punti dopo 6 mesi ---
 async def auto_tasks(app):
     while True:
+
+        # 🔍 LOG + INVIO MESSAGGIO OGNI ESECUZIONE
+        logger.info("🔍 Controllo utenti con 0 punti da oltre 6 mesi avviato.")
+        if LOG_CHAT_ID:
+            await app.bot.send_message(LOG_CHAT_ID, "🔍 Avvio controllo utenti con 0 punti da oltre 6 mesi...")
+
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
 
@@ -300,6 +306,7 @@ async def auto_tasks(app):
                     logger.error(f"Errore ban {user['user_id']}: {e}")
 
         await asyncio.sleep(86400)
+
 
 # --- MAIN ---
 if __name__ == "__main__":
