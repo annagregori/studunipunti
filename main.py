@@ -204,15 +204,19 @@ async def member_status_update(update: Update, context: ContextTypes.DEFAULT_TYP
         if not member:
             return
 
-        # Rimuove comunque il gruppo dai suoi gruppi
-        members_col.update_one(
-            {"user_id": user.id},
-            {"$pull": {"groups": {"chat_id": chat.id}}}
-        )
+# Rimuove il gruppo dai suoi gruppi
+members_col.update_one(
+    {"user_id": user.id},
+    {"$pull": {"groups": {"chat_id": chat.id}}}
+)
 
-        # Se ha 0 punti → rimuovi l’utente dal DB
-        if member.get("total_points", 0) == 0:
-            members_col.delete_one({"user_id": user.id})
+# 🔥 Ricarica i dati aggiornati
+updated = members_col.find_one({"user_id": user.id})
+
+# Se non ha più gruppi E ha 0 punti → elimina dal DB
+if updated and updated.get("total_points", 0) == 0 and len(updated.get("groups", [])) == 0:
+    members_col.delete_one({"user_id": user.id})
+
             if LOG_CHAT_ID:
                 await context.bot.send_message(
                     LOG_CHAT_ID,
