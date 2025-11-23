@@ -148,34 +148,31 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"➕ {user.full_name} ha ricevuto {points} punti in {chat.title}"
         )
 
-async def imieipunti(update: Update, context):
-    if update.effective_chat.type != "private":
-        await update.message.reply_text("⚠️ Usa questo comando in chat privata.")
+async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+
+    # Deve essere in chat privata
+    if chat.type != "private":
+        await update.message.reply_text("⚠️ Usa questo comando in chat privata con il bot.")
         return
 
     user = update.effective_user
     member = members_col.find_one({"user_id": user.id})
 
     if not member:
-        await update.message.reply_text("⚠️ Non sei registrato nel database.")
+        await update.message.reply_text("⚠️ Non sei ancora registrato nel database.")
         return
 
     total = member.get("total_points", 0)
-    groups = member.get("groups", [])
 
-    msg = f"👤 <b>I tuoi punti</b>\n\n"
-    msg += f"🌍 <b>Punti globali:</b> {total}\n\n"
-    msg += "<b>Punti per gruppo:</b>\n"
-
-    if not groups:
-        msg += "• Nessun gruppo registrato.\n"
-    else:
-        for g in groups:
-            title = html.escape(str(g.get("title", "Sconosciuto")))
-            pts = g.get("points", 0)
-            msg += f"• <b>{title}</b>: {pts} punti\n"
+    msg = (
+        "👤 <b>I tuoi punti</b>\n\n"
+        f"🌍 <b>Punti globali:</b> {total}\n\n"
+        "ℹ️ I punti sono calcolati globalmente su tutti i gruppi."
+    )
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
 
 async def list_members(update: Update, context):
     members = list(members_col.find().sort("first_name", 1))
