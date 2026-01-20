@@ -283,11 +283,15 @@ async def clean_inactive_members(app):
 #   AUTO BAN 6 MESI
 # ---------------------------
 
+# --- AUTO BAN 6 MESI + DELETE DB ---
 async def auto_tasks(app):
     while True:
         logger.info("🔍 Controllo utenti con 0 punti da 6 mesi...")
         if LOG_CHAT_ID:
-            await app.bot.send_message(LOG_CHAT_ID, "🔍 Controllo utenti inattivi avviato.")
+            await app.bot.send_message(
+                LOG_CHAT_ID,
+                "🔍 Controllo utenti con 0 punti da oltre 6 mesi avviato."
+            )
 
         now = datetime.datetime.utcnow()
         six_months_ago = now - datetime.timedelta(days=180)
@@ -298,16 +302,38 @@ async def auto_tasks(app):
         }))
 
         for user in users:
+            user_id = user["user_id"]
+            banned_anywhere = False
+
             for g in user.get("groups", []):
+                chat_id = g["chat_id"]
+
                 try:
-                    member = await app.bot.get_chat_member(g["chat_id"], user["user_id"])
+                    member = await app.bot.get_chat_member(chat_id, user_id)
+
                     if member.status not in ("administrator", "creator"):
-                        await app.bot.ban_chat_member(g["chat_id"], user["user_id"])
+                        # 🚫 RIMUOVE DAL GRUPPO (ban + unban = kick)
+                        await app.bot.ban_chat_member(chat_id, user_id)
+                        await app.bot.unban_chat_member(chat_id, user_id)
+                        banned_anywhere = True
 
                 except Forbidden:
                     pass
+                except Exception as e:
+                    logger.error(f"Errore auto-ban {user_id}: {e}")
+
+            # 🗑️ DELETE DB UNA SOLA VOLTA
+            if banned_anywhere:
+                members_col.delete_one({"user_id": user_id})
+                if LOG_CHAT_ID:
+                    await app.bot.send_message(
+                        LOG_CHAT_ID,
+                        f"🚫🗑️ Utente {user_id} rimosso dai gruppi ed eliminato dal DB (0 punti, 6 mesi)"
+                    )
 
         await asyncio.sleep(86400)
+
+
 
 # ---------------------------
 #   MAIN
@@ -333,4 +359,3 @@ if __name__ == "__main__":
 
     logger.info("🤖 Bot avviato!")
     app.run_polling()
-
