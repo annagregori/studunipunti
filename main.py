@@ -277,7 +277,7 @@ async def clean_inactive_members(app):
                 except Forbidden:
                     pass
 
-        await asyncio.sleep(86400)
+        await asyncio.sleep(120)
 
 # ---------------------------
 #   AUTO BAN 6 MESI
