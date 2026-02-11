@@ -281,7 +281,7 @@ async def auto_tasks(app):
 
             members_col.delete_one({"user_id": user_id})
 
-        await asyncio.sleep(120)
+        await asyncio.sleep(86400)
 
 
 # =========================================================
