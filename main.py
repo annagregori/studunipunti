@@ -236,7 +236,7 @@ async def clean_inactive_members(app):
             "groups": []
         })
 
-        await asyncio.sleep(86400)
+        await asyncio.sleep(120)
 
 
 # =========================================================
