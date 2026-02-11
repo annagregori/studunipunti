@@ -219,7 +219,8 @@ async def clean_inactive_members(app):
                         )
 
                 except ChatMigrated as e:
-                    new_id = e.migrate_to_chat_id
+                new_id = e.new_chat_id
+
                     members_col.update_many(
                         {"groups.chat_id": chat_id},
                         {"$set": {"groups.$.chat_id": new_id}}
@@ -268,7 +269,7 @@ async def auto_tasks(app):
                     await app.bot.unban_chat_member(chat_id, user_id)
 
                 except ChatMigrated as e:
-                    new_id = e.migrate_to_chat_id
+                    new_id = e.new_chat_id
                     members_col.update_many(
                         {"groups.chat_id": chat_id},
                         {"$set": {"groups.$.chat_id": new_id}}
