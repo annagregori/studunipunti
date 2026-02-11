@@ -219,7 +219,7 @@ async def clean_inactive_members(app):
                         )
 
                 except ChatMigrated as e:
-                new_id = e.new_chat_id
+                    new_id = e.new_chat_id
 
                     members_col.update_many(
                         {"groups.chat_id": chat_id},
