@@ -171,6 +171,9 @@ async def is_admin(update: Update) -> bool:
     member = await update.effective_chat.get_member(update.effective_user.id)
     return member.status in ("administrator", "creator")
 
+async def is_owner(update: Update) -> bool:
+    return update.effective_user.id == OWNER_ID
+
 
 # =========================================================
 # COMANDI
