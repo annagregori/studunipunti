@@ -250,6 +250,7 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for i, g in enumerate(groups, 1):
 
+        title = html.escape(str(g.get("title", "Senza titolo")))
         members_count = members_col.count_documents({
             "groups.chat_id": g["chat_id"]
         })
@@ -257,24 +258,24 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status = "🟢 Attivo" if g.get("active") else "🔴 Inattivo"
 
         msg += (
-            f"{i}. <b>{html.escape(g.get('title','Senza titolo'))}</b>\n"
+            f"{i}. <b>{title}</b>\n"
             f"   ID: <code>{g['chat_id']}</code>\n"
             f"   Tipo: {g.get('type','?')}\n"
             f"   Stato: {status}\n"
             f"   Membri DB: {members_count}\n\n"
         )
 
+    # 🔥 Gestione limite 4096 caratteri
     MAX_LENGTH = 4000
 
-if len(msg) <= MAX_LENGTH:
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-else:
-    for i in range(0, len(msg), MAX_LENGTH):
-        await update.message.reply_text(
-            msg[i:i+MAX_LENGTH],
-            parse_mode=ParseMode.HTML
-        )
-
+    if len(msg) <= MAX_LENGTH:
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+    else:
+        for i in range(0, len(msg), MAX_LENGTH):
+            await update.message.reply_text(
+                msg[i:i+MAX_LENGTH],
+                parse_mode=ParseMode.HTML
+            )
 
 
 async def register_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
