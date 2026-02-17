@@ -296,7 +296,12 @@ async def register_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
         upsert=True
     )
 
-    await update.message.reply_text("✅ Gruppo registrato nel database.")
+    # 🔥 Cancella il comando
+    try:
+        await update.message.delete()
+    except Exception:
+        pass
+
 
 
 # =========================================================
