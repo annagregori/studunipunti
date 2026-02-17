@@ -233,31 +233,39 @@ async def list_members(update: Update, context):
 
 async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not await is_admin(update):
-        return await update.message.reply_text("Solo admin.")
+    # solo privato
+    if update.effective_chat.type != "private":
+        return
 
-    groups = list(groups_col.find({"active": True}).sort("title", 1))
+    # solo owner
+    if not await is_owner(update):
+        return
+
+    groups = list(groups_col.find({}).sort("title", 1))
 
     if not groups:
-        return await update.message.reply_text("Nessun gruppo attivo registrato.")
+        return await update.message.reply_text("Nessun gruppo registrato.")
 
-    msg = "<b>📊 Gruppi attivi:</b>\n\n"
+    msg = "<b>📊 Gruppi registrati:</b>\n\n"
 
     for i, g in enumerate(groups, 1):
 
-        # conta membri nel DB collegati a quel gruppo
         members_count = members_col.count_documents({
             "groups.chat_id": g["chat_id"]
         })
+
+        status = "🟢 Attivo" if g.get("active") else "🔴 Inattivo"
 
         msg += (
             f"{i}. <b>{html.escape(g.get('title','Senza titolo'))}</b>\n"
             f"   ID: <code>{g['chat_id']}</code>\n"
             f"   Tipo: {g.get('type','?')}\n"
-            f"   Membri registrati: {members_count}\n\n"
+            f"   Stato: {status}\n"
+            f"   Membri DB: {members_count}\n\n"
         )
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
 
 async def register_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
