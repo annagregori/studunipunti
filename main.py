@@ -222,6 +222,34 @@ async def list_members(update: Update, context):
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
+async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not await is_admin(update):
+        return await update.message.reply_text("Solo admin.")
+
+    groups = list(groups_col.find({"active": True}).sort("title", 1))
+
+    if not groups:
+        return await update.message.reply_text("Nessun gruppo attivo registrato.")
+
+    msg = "<b>📊 Gruppi attivi:</b>\n\n"
+
+    for i, g in enumerate(groups, 1):
+
+        # conta membri nel DB collegati a quel gruppo
+        members_count = members_col.count_documents({
+            "groups.chat_id": g["chat_id"]
+        })
+
+        msg += (
+            f"{i}. <b>{html.escape(g.get('title','Senza titolo'))}</b>\n"
+            f"   ID: <code>{g['chat_id']}</code>\n"
+            f"   Tipo: {g.get('type','?')}\n"
+            f"   Membri registrati: {members_count}\n\n"
+        )
+
+    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+
 
 # =========================================================
 # TRACK MESSAGGI
@@ -338,6 +366,7 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("punto", punto))
     app.add_handler(CommandHandler("imieipunti", imieipunti))
     app.add_handler(CommandHandler("listmembers", list_members))
+    app.add_handler(CommandHandler("listgroups", list_groups))
 
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
 
