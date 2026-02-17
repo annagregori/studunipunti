@@ -250,6 +250,37 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
+async def register_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    # Solo gruppi
+    if update.effective_chat.type not in ("group", "supergroup"):
+        return
+
+    # Solo owner
+    if update.effective_user.id != OWNER_ID:
+        return
+
+    chat = update.effective_chat
+    now = datetime.datetime.utcnow()
+
+    groups_col.update_one(
+        {"chat_id": chat.id},
+        {
+            "$set": {
+                "title": chat.title,
+                "type": chat.type,
+                "active": True,
+                "updated_at": now
+            },
+            "$setOnInsert": {
+                "added_at": now
+            }
+        },
+        upsert=True
+    )
+
+    await update.message.reply_text("✅ Gruppo registrato nel database.")
+
 
 # =========================================================
 # TRACK MESSAGGI
@@ -367,6 +398,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("imieipunti", imieipunti))
     app.add_handler(CommandHandler("listmembers", list_members))
     app.add_handler(CommandHandler("listgroups", list_groups))
+    app.add_handler(CommandHandler("registergroup", register_group))
+
 
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
 
