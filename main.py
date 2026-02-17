@@ -29,6 +29,12 @@ DB_NAME = os.getenv("DB_NAME")
 if not BOT_TOKEN or not MONGO_URI:
     raise Exception("BOT_TOKEN o MONGO_URI non configurati!")
 
+OWNER_ID = int(os.getenv("OWNER_ID", 0))
+
+if not OWNER_ID:
+    raise Exception("OWNER_ID non configurato!")
+
+
 
 # =========================================================
 # DB
