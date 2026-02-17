@@ -264,7 +264,17 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"   Membri DB: {members_count}\n\n"
         )
 
+    MAX_LENGTH = 4000
+
+if len(msg) <= MAX_LENGTH:
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+else:
+    for i in range(0, len(msg), MAX_LENGTH):
+        await update.message.reply_text(
+            msg[i:i+MAX_LENGTH],
+            parse_mode=ParseMode.HTML
+        )
+
 
 
 async def register_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
