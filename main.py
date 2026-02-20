@@ -334,6 +334,7 @@ async def clean_inactive_members(app):
         logger.info("🧹 Pulizia DB...")
 
         active_groups = list(groups_col.find({"active": True}))
+        active_group_ids = {g["chat_id"] for g in active_groups}
 
         for member in list(members_col.find()):
             user_id = member["user_id"]
@@ -341,43 +342,49 @@ async def clean_inactive_members(app):
             for group in list(member.get("groups", [])):
                 chat_id = group["chat_id"]
 
-                # se il gruppo non è più attivo, rimuovilo subito
-                if not any(g["chat_id"] == chat_id for g in active_groups):
+                # 🔥 Se il gruppo non è più attivo → rimuovi subito
+                if chat_id not in active_group_ids:
+
                     members_col.update_one(
                         {"user_id": user_id},
                         {"$pull": {"groups": {"chat_id": chat_id}}}
                     )
-                    continue
 
-                try:
-                    cm = await app.bot.get_chat_member(chat_id, user_id)
+                else:
+                    try:
+                        cm = await app.bot.get_chat_member(chat_id, user_id)
 
-                    if cm.status in ("left", "kicked"):
-                        members_col.update_one(
-                            {"user_id": user_id},
-                            {"$pull": {"groups": {"chat_id": chat_id}}}
+                        if cm.status in ("left", "kicked"):
+
+                            members_col.update_one(
+                                {"user_id": user_id},
+                                {"$pull": {"groups": {"chat_id": chat_id}}}
+                            )
+
+                    except ChatMigrated as e:
+                        new_id = e.new_chat_id
+                        members_col.update_many(
+                            {"groups.chat_id": chat_id},
+                            {"$set": {"groups.$.chat_id": new_id}}
                         )
 
-                except ChatMigrated as e:
-                    new_id = e.new_chat_id
-                    members_col.update_many(
-                        {"groups.chat_id": chat_id},
-                        {"$set": {"groups.$.chat_id": new_id}}
-                    )
+                    except (Forbidden, BadRequest):
+                        pass
 
-                except (Forbidden, BadRequest):
-                    pass
+            # 🔥 DOPO aver pulito i gruppi → controlla se va eliminato
+            updated_member = members_col.find_one({"user_id": user_id})
 
-        # ⚠️ cancellazione meno aggressiva
-        members_col.delete_many({
-            "total_points": 0,
-            "groups.0": {"$exists": False},
-            "created_at": {
-                "$lte": datetime.datetime.utcnow() - datetime.timedelta(days=30)
-            }
-        })
+            if updated_member:
+
+                if (
+                    updated_member.get("total_points", 0) == 0 and
+                    len(updated_member.get("groups", [])) == 0
+                ):
+                    logger.info(f"🗑️ Eliminato utente {user_id} (0 punti, 0 gruppi)")
+                    members_col.delete_one({"user_id": user_id})
 
         await asyncio.sleep(120)
+
 
 
 # =========================================================
