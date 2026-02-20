@@ -267,15 +267,36 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # 🔥 Gestione limite 4096 caratteri
     MAX_LENGTH = 4000
+current_msg = "<b>📊 Gruppi registrati:</b>\n\n"
 
-    if len(msg) <= MAX_LENGTH:
-        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
-    else:
-        for i in range(0, len(msg), MAX_LENGTH):
-            await update.message.reply_text(
-                msg[i:i+MAX_LENGTH],
-                parse_mode=ParseMode.HTML
-            )
+for i, g in enumerate(groups, 1):
+
+    title = html.escape(str(g.get("title", "Senza titolo")))
+    members_count = members_col.count_documents({
+        "groups.chat_id": g["chat_id"]
+    })
+
+    status = "🟢 Attivo" if g.get("active") else "🔴 Inattivo"
+
+    group_block = (
+        f"{i}. <b>{title}</b>\n"
+        f"   ID: <code>{g['chat_id']}</code>\n"
+        f"   Tipo: {g.get('type','?')}\n"
+        f"   Stato: {status}\n"
+        f"   Membri DB: {members_count}\n\n"
+    )
+
+    # Se aggiungendo il blocco superiamo il limite → inviamo e resettiamo
+    if len(current_msg) + len(group_block) > MAX_LENGTH:
+        await update.message.reply_text(current_msg, parse_mode=ParseMode.HTML)
+        current_msg = ""
+
+    current_msg += group_block
+
+# Invia ultimo blocco
+if current_msg:
+    await update.message.reply_text(current_msg, parse_mode=ParseMode.HTML)
+
 
 
 async def register_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
