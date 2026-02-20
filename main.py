@@ -293,9 +293,10 @@ for i, g in enumerate(groups, 1):
 
     current_msg += group_block
 
-# Invia ultimo blocco
-if current_msg:
-    await update.message.reply_text(current_msg, parse_mode=ParseMode.HTML)
+    # Invia ultimo blocco
+    if current_msg:
+        await update.message.reply_text(current_msg, parse_mode=ParseMode.HTML)
+
 
 
 
