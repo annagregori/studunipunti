@@ -331,61 +331,73 @@ async def clean_inactive_members(app):
 
     while True:
 
-        logger.info("🧹 Pulizia DB...")
+        logger.info("🧹 Pulizia DB ottimizzata...")
 
-        active_groups = list(groups_col.find({"active": True}))
-        active_group_ids = {g["chat_id"] for g in active_groups}
+        # ==============================
+        # 1️⃣ Recupera gruppi attivi
+        # ==============================
+        active_group_ids = set(
+            g["chat_id"] for g in groups_col.find({"active": True}, {"chat_id": 1})
+        )
 
-        for member in list(members_col.find()):
+        # ==============================
+        # 2️⃣ Rimuovi gruppi non più attivi (Mongo diretto)
+        # ==============================
+        members_col.update_many(
+            {},
+            {
+                "$pull": {
+                    "groups": {
+                        "chat_id": {"$nin": list(active_group_ids)}
+                    }
+                }
+            }
+        )
+
+        # ==============================
+        # 3️⃣ Verifica utenti ancora presenti nei gruppi attivi
+        # ==============================
+        members = members_col.find({"groups.0": {"$exists": True}})
+
+        for member in members:
+
             user_id = member["user_id"]
 
-            for group in list(member.get("groups", [])):
+            for group in member.get("groups", []):
                 chat_id = group["chat_id"]
 
-                # 🔥 Se il gruppo non è più attivo → rimuovi subito
-                if chat_id not in active_group_ids:
+                try:
+                    cm = await app.bot.get_chat_member(chat_id, user_id)
 
-                    members_col.update_one(
-                        {"user_id": user_id},
-                        {"$pull": {"groups": {"chat_id": chat_id}}}
-                    )
+                    if cm.status in ("left", "kicked"):
 
-                else:
-                    try:
-                        cm = await app.bot.get_chat_member(chat_id, user_id)
-
-                        if cm.status in ("left", "kicked"):
-
-                            members_col.update_one(
-                                {"user_id": user_id},
-                                {"$pull": {"groups": {"chat_id": chat_id}}}
-                            )
-
-                    except ChatMigrated as e:
-                        new_id = e.new_chat_id
-                        members_col.update_many(
-                            {"groups.chat_id": chat_id},
-                            {"$set": {"groups.$.chat_id": new_id}}
+                        members_col.update_one(
+                            {"user_id": user_id},
+                            {"$pull": {"groups": {"chat_id": chat_id}}}
                         )
 
-                    except (Forbidden, BadRequest):
-                        pass
+                except ChatMigrated as e:
+                    new_id = e.new_chat_id
+                    members_col.update_many(
+                        {"groups.chat_id": chat_id},
+                        {"$set": {"groups.$.chat_id": new_id}}
+                    )
 
-            # 🔥 DOPO aver pulito i gruppi → controlla se va eliminato
-            updated_member = members_col.find_one({"user_id": user_id})
+                except (Forbidden, BadRequest):
+                    pass
 
-            if updated_member:
+        # ==============================
+        # 4️⃣ Eliminazione immediata utenti vuoti
+        # ==============================
+        result = members_col.delete_many({
+            "total_points": 0,
+            "groups": {"$size": 0}
+        })
 
-                if (
-                    updated_member.get("total_points", 0) == 0 and
-                    len(updated_member.get("groups", [])) == 0
-                ):
-                    logger.info(f"🗑️ Eliminato utente {user_id} (0 punti, 0 gruppi)")
-                    members_col.delete_one({"user_id": user_id})
+        if result.deleted_count > 0:
+            logger.info(f"🗑️ Eliminati {result.deleted_count} utenti vuoti")
 
         await asyncio.sleep(120)
-
-
 
 # =========================================================
 # AUTO TASK
