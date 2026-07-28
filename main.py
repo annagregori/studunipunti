@@ -206,6 +206,25 @@ async def punto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+help_text = (
+    "📚 *Guida ai Comandi del Bot*\n\n"
+    "🚀 `/start` - Avvia il bot e ricevi il messaggio di benvenuto.\n"
+    "🎯 `/punto` - Assegna o registra un punto.\n"
+    "📊 `/imieipunti` - Mostra il tuo punteggio totale aggiornato.\n"
+    "👥 `/listmembers` - Visualizza l'elenco dei membri del gruppo.\n"
+    "🌐 `/listgroups` - Mostra la lista di tutti i gruppi registrati.\n"
+    "🏢 `/registergroup` - Registra il gruppo corrente nel database."
+)
+async def help_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+    if not await is_admin(update):
+        return await update.message.reply_text("Solo admin.")
+
+    await update.message.reply_html(
+        f"✅ {html.escape(help_text)} "
+    )
+
+
 async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if update.effective_chat.type != "private":
@@ -449,6 +468,8 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("listgroups", list_groups))
     app.add_handler(CommandHandler("registergroup", register_group))
 
+    app.add_handler(MessageHandler(filters.COMMAND, help_message))
+
 
     app.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, track_message))
 
@@ -461,5 +482,11 @@ if __name__ == "__main__":
 
     app.post_init = post_init
 
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     logger.info("🤖 Bot avviato")
     app.run_polling(drop_pending_updates=True)
