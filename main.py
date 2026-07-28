@@ -4,7 +4,9 @@ import datetime
 import html
 import os
 
+import pymongo
 from pymongo import MongoClient
+from pymongo.errors import ConnectionFailure
 from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
@@ -217,9 +219,6 @@ help_text = (
 )
 async def help_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not await is_admin(update):
-        return await update.message.reply_text("Solo admin.")
-
     await update.message.reply_html(
         f"✅ {html.escape(help_text)} "
     )
@@ -239,8 +238,14 @@ async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def list_members(update: Update, context):
+    members = None
+    try:
+        members = members_col.find({"groups.0": {"$exists": True}}).sort("first_name", 1)
+    except ConnectionFailure:
+        msg = "<b> Errore del database , contatta l'amministratore Catia:</b>\n"
+        await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        return None
 
-    members = members_col.find({"groups.0": {"$exists": True}}).sort("first_name", 1)
 
     msg = "<b>👥 Membri:</b>\n"
 
@@ -251,7 +256,6 @@ async def list_members(update: Update, context):
     await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
 
 async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     # solo privato
     if update.effective_chat.type != "private":
         return
@@ -259,8 +263,11 @@ async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # solo owner
     if not await is_owner(update):
         return
-
-    groups = list(groups_col.find({}).sort("title", 1))
+    try:
+        groups = list(groups_col.find({}).sort("title", 1))
+    except ConnectionFailure:
+        msg = "Errore del database , contatta l'amministratore Catia\n"
+        return await update.message.reply_text(msg)
 
     if not groups:
         return await update.message.reply_text("Nessun gruppo registrato.")
