@@ -461,5 +461,11 @@ if __name__ == "__main__":
 
     app.post_init = post_init
 
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
     logger.info("🤖 Bot avviato")
     app.run_polling(drop_pending_updates=True)
