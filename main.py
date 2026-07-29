@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 
 
 
-
 # =========================================================
 # CONFIG
 # =========================================================
+MAX_LENGTH = 3000 #max message lenght
 
 if os.getenv("RAILWAY_ENVIRONMENT") is None:
     from dotenv import load_dotenv
@@ -172,7 +172,7 @@ async def track_bot_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def is_admin(update: Update) -> bool:
     member = await update.effective_chat.get_member(update.effective_user.id)
 
-    return member.status in ("administrator", "creator") or True #TODO RBR
+    return member.status in ("administrator", "creator")
 
 async def is_owner(update: Update) -> bool:
     return update.effective_user.id == OWNER_ID
@@ -240,32 +240,36 @@ async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_members(update: Update, context):
 
+    logger.info("list_members...")
+
     members = members_col.find({"groups.0": {"$exists": True}}).sort("first_name", 1)
 
-    msg = "<b>👥 Membri:</b>\n"
-
+    current_msg = "<b>👥 Membri:</b>\n"
     for i, m in enumerate(members, 1):
         name = html.escape(m.get("first_name", "Utente"))
-        msg += f"{i}. {name} — {m.get('total_points',0)} punti\n"
+        current_msg += f"{i}. {name} — {m.get('total_points',0)} punti\n"
 
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        if len(current_msg) > MAX_LENGTH:
+            await update.message.reply_text(current_msg, parse_mode=ParseMode.HTML)
+            current_msg = ""
+
+
 
 async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     # solo privato
     if update.effective_chat.type != "private":
-        return
+        return await update.message.reply_text("Usa il comando in privato.")
 
-    # solo owner
+    #solo owner
     if not await is_owner(update):
-        return
+        return await update.message.reply_text("Solo owner.")
 
+    logger.info("list_groups...")
     groups = list(groups_col.find({}).sort("title", 1))
 
     if not groups:
         return await update.message.reply_text("Nessun gruppo registrato.")
 
-    MAX_LENGTH = 4000
     current_msg = "<b>📊 Gruppi registrati:</b>\n\n"
 
     for i, g in enumerate(groups, 1):
@@ -423,8 +427,7 @@ async def clean_inactive_members(app):
 # =========================================================
 
 async def auto_tasks(app):
-    #TODO RBR
-    while False:
+    while True:
 
         logger.info("🔍 Auto kick 6 mesi...")
 
