@@ -422,8 +422,8 @@ async def clean_inactive_members(app):
 # =========================================================
 
 async def auto_tasks(app):
-
-    while False:  #TODO RBR
+    #TODO RBR
+    while False:
 
         logger.info("🔍 Auto kick 6 mesi...")
 
