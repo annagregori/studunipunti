@@ -13,6 +13,18 @@ from telegram.ext import (
 )
 from telegram.error import Forbidden, ChatMigrated, BadRequest
 
+# =========================================================
+# LOGGING
+# =========================================================
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+
+
 
 # =========================================================
 # CONFIG
@@ -34,28 +46,18 @@ if not BOT_TOKEN or not MONGO_URI:
 if not OWNER_ID:
     raise Exception("OWNER_ID non configurato!")
 
-
-
 # =========================================================
 # DB
 # =========================================================
-
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client[DB_NAME]
-
+try:
+    mongo_client = MongoClient(MONGO_URI)
+    db = mongo_client[DB_NAME]
+except Exception:
+    logging.error("Error connecting to mongoDB")
+    raise Exception("Error connecting to mongoDB")
 members_col = db["members"]
 groups_col = db["groups"]  # 🔥 nuova collection
 
-
-# =========================================================
-# LOGGING
-# =========================================================
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -421,7 +423,7 @@ async def clean_inactive_members(app):
 
 async def auto_tasks(app):
 
-    while True:
+    while False:  #TODO RBR
 
         logger.info("🔍 Auto kick 6 mesi...")
 
