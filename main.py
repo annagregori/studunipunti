@@ -9,7 +9,7 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes,
-    MessageHandler, ChatMemberHandler, filters
+    MessageHandler, ChatMemberHandler, filters, Application
 )
 from telegram.error import Forbidden, ChatMigrated, BadRequest
 
@@ -450,6 +450,10 @@ async def auto_tasks(app):
         await asyncio.sleep(86400)
 
 
+
+async def post_init(app : Application):
+    app.create_task(clean_inactive_members(app))
+    app.create_task(auto_tasks(app))
 # =========================================================
 # MAIN
 # =========================================================
@@ -460,7 +464,8 @@ if __name__ == "__main__":
     except RuntimeError:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("punto", punto))
@@ -477,13 +482,7 @@ if __name__ == "__main__":
     # 🔥 tracking gruppi
     app.add_handler(ChatMemberHandler(track_bot_groups, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    async def post_init(app):
-        app.create_task(clean_inactive_members(app))
-        app.create_task(auto_tasks(app))
-
     app.post_init = post_init
-
-
 
     logger.info("🤖 Bot avviato")
     app.run_polling(drop_pending_updates=True)
