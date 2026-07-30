@@ -9,14 +9,26 @@ from telegram import Update
 from telegram.constants import ParseMode
 from telegram.ext import (
     ApplicationBuilder, CommandHandler, ContextTypes,
-    MessageHandler, ChatMemberHandler, filters
+    MessageHandler, ChatMemberHandler, filters, Application
 )
 from telegram.error import Forbidden, ChatMigrated, BadRequest
+
+# =========================================================
+# LOGGING
+# =========================================================
+
+logging.basicConfig(
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
 
 
 # =========================================================
 # CONFIG
 # =========================================================
+MAX_LENGTH = 3000 #max message lenght
 
 if os.getenv("RAILWAY_ENVIRONMENT") is None:
     from dotenv import load_dotenv
@@ -34,28 +46,18 @@ if not BOT_TOKEN or not MONGO_URI:
 if not OWNER_ID:
     raise Exception("OWNER_ID non configurato!")
 
-
-
 # =========================================================
 # DB
 # =========================================================
-
-mongo_client = MongoClient(MONGO_URI)
-db = mongo_client[DB_NAME]
-
+try:
+    mongo_client = MongoClient(MONGO_URI)
+    db = mongo_client[DB_NAME]
+except Exception:
+    logging.error("Error connecting to mongoDB")
+    raise Exception("Error connecting to mongoDB")
 members_col = db["members"]
 groups_col = db["groups"]  # 🔥 nuova collection
 
-
-# =========================================================
-# LOGGING
-# =========================================================
-
-logging.basicConfig(
-    format="%(asctime)s - %(levelname)s - %(message)s",
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
 
 
 # =========================================================
@@ -169,6 +171,7 @@ async def track_bot_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def is_admin(update: Update) -> bool:
     member = await update.effective_chat.get_member(update.effective_user.id)
+
     return member.status in ("administrator", "creator")
 
 async def is_owner(update: Update) -> bool:
@@ -217,9 +220,6 @@ help_text = (
 )
 async def help_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
-    if not await is_admin(update):
-        return await update.message.reply_text("Solo admin.")
-
     await update.message.reply_html(
         f"✅ {html.escape(help_text)} "
     )
@@ -240,32 +240,36 @@ async def imieipunti(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def list_members(update: Update, context):
 
+    logger.info("list_members...")
+
     members = members_col.find({"groups.0": {"$exists": True}}).sort("first_name", 1)
 
-    msg = "<b>👥 Membri:</b>\n"
-
+    current_msg = "<b>👥 Membri:</b>\n"
     for i, m in enumerate(members, 1):
         name = html.escape(m.get("first_name", "Utente"))
-        msg += f"{i}. {name} — {m.get('total_points',0)} punti\n"
+        current_msg += f"{i}. {name} — {m.get('total_points',0)} punti\n"
 
-    await update.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        if len(current_msg) > MAX_LENGTH:
+            await update.message.reply_text(current_msg, parse_mode=ParseMode.HTML)
+            current_msg = ""
+
+
 
 async def list_groups(update: Update, context: ContextTypes.DEFAULT_TYPE):
-
     # solo privato
     if update.effective_chat.type != "private":
-        return
+        return await update.message.reply_text("Usa il comando in privato.")
 
-    # solo owner
+    #solo owner
     if not await is_owner(update):
-        return
+        return await update.message.reply_text("Solo owner.")
 
+    logger.info("list_groups...")
     groups = list(groups_col.find({}).sort("title", 1))
 
     if not groups:
         return await update.message.reply_text("Nessun gruppo registrato.")
 
-    MAX_LENGTH = 4000
     current_msg = "<b>📊 Gruppi registrati:</b>\n\n"
 
     for i, g in enumerate(groups, 1):
@@ -423,7 +427,6 @@ async def clean_inactive_members(app):
 # =========================================================
 
 async def auto_tasks(app):
-
     while True:
 
         logger.info("🔍 Auto kick 6 mesi...")
@@ -453,13 +456,22 @@ async def auto_tasks(app):
         await asyncio.sleep(86400)
 
 
+
+async def post_init(app : Application):
+    app.create_task(clean_inactive_members(app))
+    app.create_task(auto_tasks(app))
 # =========================================================
 # MAIN
 # =========================================================
 
 if __name__ == "__main__":
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = ApplicationBuilder().token(BOT_TOKEN).post_init(post_init).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("punto", punto))
@@ -476,17 +488,7 @@ if __name__ == "__main__":
     # 🔥 tracking gruppi
     app.add_handler(ChatMemberHandler(track_bot_groups, ChatMemberHandler.MY_CHAT_MEMBER))
 
-    async def post_init(app):
-        app.create_task(clean_inactive_members(app))
-        app.create_task(auto_tasks(app))
-
     app.post_init = post_init
 
-
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
     logger.info("🤖 Bot avviato")
     app.run_polling(drop_pending_updates=True)
