@@ -426,7 +426,7 @@ async def auto_tasks(app):
 
     while True:
 
-        logger.info("🔍 Auto kick 6 mesi...")
+        logger.info("🔍 Auto ban 6 mesi...")
 
         six_months_ago = datetime.datetime.utcnow() - datetime.timedelta(days=180)
 
@@ -435,43 +435,37 @@ async def auto_tasks(app):
             "created_at": {"$lte": six_months_ago}
         })
 
-for user in users:
+        for user in users:
 
-    user_id = user["user_id"]
+            user_id = user["user_id"]
 
-    # Recupera tutti i gruppi attivi
-    active_groups = groups_col.find({"active": True}, {"chat_id": 1})
+            active_groups = groups_col.find({"active": True}, {"chat_id": 1})
 
-    for group in active_groups:
-        chat_id = group["chat_id"]
+            for group in active_groups:
+                chat_id = group["chat_id"]
 
-        try:
-            await app.bot.ban_chat_member(chat_id, user_id)
+                try:
+                    await app.bot.ban_chat_member(chat_id, user_id)
 
-        except ChatMigrated as e:
-            # Aggiorna il nuovo ID del gruppo
-            new_chat_id = e.new_chat_id
+                except ChatMigrated as e:
+                    new_chat_id = e.new_chat_id
 
-            groups_col.update_one(
-                {"chat_id": chat_id},
-                {"$set": {"chat_id": new_chat_id}}
-            )
+                    groups_col.update_one(
+                        {"chat_id": chat_id},
+                        {"$set": {"chat_id": new_chat_id}}
+                    )
 
-            try:
-                await app.bot.ban_chat_member(new_chat_id, user_id)
-            except (Forbidden, BadRequest):
-                pass
+                    try:
+                        await app.bot.ban_chat_member(new_chat_id, user_id)
+                    except (Forbidden, BadRequest):
+                        pass
 
-        except (Forbidden, BadRequest):
-            # Il bot non è admin oppure non può bannare
-            pass
+                except (Forbidden, BadRequest):
+                    pass
 
-    # Elimina l'utente dal database
-    members_col.delete_one({"user_id": user_id})
+            members_col.delete_one({"user_id": user_id})
 
         await asyncio.sleep(86400)
-
-
 # =========================================================
 # MAIN
 # =========================================================
