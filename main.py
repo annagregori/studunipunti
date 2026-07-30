@@ -444,7 +444,6 @@ async def auto_tasks(app):
 
                 try:
                     await app.bot.ban_chat_member(chat_id, user_id)
-                    await app.bot.unban_chat_member(chat_id, user_id)
                 except (Forbidden, BadRequest, ChatMigrated):
                     pass
 
